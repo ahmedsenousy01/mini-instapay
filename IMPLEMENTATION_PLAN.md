@@ -16,12 +16,13 @@ Mini-InstaPay is a secure, scalable, and user-friendly digital money transfer pl
 
 ### 2.1 Microservices
 
-- **User Management Service**: Registration, login, profile, authentication (JWT)
+- **User Management Service**: Profile management (user data, preferences)
+- **Auth Service**: Custom authentication server for registration, login, JWT/OAuth2 issuance, and session management
 - **Transaction Service**: Send/receive money, update balances, transaction logs
 - **Reporting Service**: Analyze account usage, generate transaction summaries
 - **Notification Service**: Send email/SMS/push notifications on events
 - **(Optional) Analytics Service**: Gather metrics and usage data
-- **API Gateway**: Expose unified RESTful API to frontend, route to backend services
+- **API Gateway**: Custom-built gateway for unified RESTful API, routing, authentication checks, and rate limiting
 
 ### 2.2 Communication
 
@@ -34,21 +35,21 @@ Mini-InstaPay is a secure, scalable, and user-friendly digital money transfer pl
 
 - **Primary Database**: PostgreSQL for transactional data
 - **Time-series DB**: Prometheus for metrics
-- **Logging**: Elasticsearch via EFK stack
+- **Logging**: Loki for log aggregation
 
 ## 3. Technology Stack
 
-| Layer            | Technology              |
-| ---------------- | ----------------------- |
-| Frontend         | React + TypeScript      |
-| API Gateway      | NGINX / Express-Gateway |
-| Services         | Node.js + Express (TS)  |
-| Database         | PostgreSQL              |
-| Containerization | Docker                  |
-| Orchestration    | Kubernetes (+ Helm)     |
-| CI/CD            | GitHub Actions          |
-| Monitoring       | Prometheus + Grafana    |
-| Logging          | Elasticsearch + Kibana  |
+| Layer            | Technology                                                   |
+| ---------------- | ------------------------------------------------------------ |
+| Frontend         | React + TypeScript                                           |
+| API Gateway      | Custom Node.js + Express Gateway                             |
+| Auth Service     | Node.js + Express (TS), JWT/OAuth2                           |
+| Services         | Node.js + Express (TS)                                       |
+| Database         | PostgreSQL                                                   |
+| Containerization | Docker                                                       |
+| Orchestration    | Kubernetes (+ Helm)                                          |
+| CI/CD            | GitHub Actions                                               |
+| Observability    | Prometheus (metrics) + Loki (logs) + Grafana (visualization) |
 
 ## 4. Repository & Directory Layout
 
@@ -57,6 +58,8 @@ Mini-InstaPay is a secure, scalable, and user-friendly digital money transfer pl
 │
 ├─ /services
 │  ├─ /user-service
+│  ├─ /auth-service
+│  ├─ /api-gateway
 │  ├─ /transaction-service
 │  ├─ /reporting-service
 │  └─ /notification-service
@@ -72,6 +75,8 @@ Mini-InstaPay is a secure, scalable, and user-friendly digital money transfer pl
 │  └─ /k8s
 │     ├─ namespaces.yaml
 │     ├─ user-service-deployment.yaml
+│     ├─ auth-service-deployment.yaml
+│     ├─ api-gateway-deployment.yaml
 │     ├─ transaction-service-deployment.yaml
 │     ├─ reporting-service-deployment.yaml
 │     ├─ notification-service-deployment.yaml
@@ -134,33 +139,26 @@ Mini-InstaPay is a secure, scalable, and user-friendly digital money transfer pl
 
 ## 9. Monitoring & Logging
 
-- **Prometheus**: scrape `/metrics` endpoints on each service
-- **Grafana**: dashboards for service health, error rates, latency
-- **EFK Stack**: collect, index, and visualize logs
+- **Prometheus**
+
+  - Scrape `/metrics` endpoints from all services
+  - Store time-series metrics data
+  - Handle alerting rules
+
+- **Loki**
+
+  - Collect container logs (stdout/stderr)
+  - Label-based log querying
+  - Efficient log storage and indexing
+
+- **Grafana**
+  - Unified dashboards for metrics and logs
+  - Prometheus data source for metrics visualization
+  - Loki data source for log querying and exploration
+  - Alert management UI
 
 ## 10. Security & Best Practices
 
 - JWT-based authentication and authorization
 - HTTPS everywhere (Let's Encrypt)
 - Secrets management (Kubernetes Secrets or Vault)
-- Automated dependency scanning (Snyk/Dependabot)
-
-## 11. Timeline & Milestones
-
-| Week | Milestone                                           |
-| ---- | --------------------------------------------------- |
-| 1    | Project scaffolding, Docker setup, CI pipeline      |
-| 2    | Implement User & Transaction services + DB models   |
-| 3    | Reporting & Notification services                   |
-| 4    | Frontend integration and API Gateway                |
-| 5    | Docker Compose for all environments                 |
-| 6    | Kubernetes manifests + helm charts                  |
-| 7    | Monitoring, logging, security hardening             |
-| 8    | Final QA, performance testing, documentation review |
-
-## 12. Future Enhancements
-
-- Mobile app client (React Native)
-- Advanced analytics and forecasting
-- Payment gateway integrations (Stripe, PayPal)
-- Microservices autoscaling policies
