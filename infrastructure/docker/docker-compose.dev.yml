@@ -1,0 +1,46 @@
+version: "3.8"
+
+services:
+  auth-db:
+    build:
+      context: ./auth-db
+      dockerfile: Dockerfile
+    environment:
+      - POSTGRES_DB=auth_db
+      - POSTGRES_USER=instapay
+      - POSTGRES_PASSWORD=${AUTH_DB_PASSWORD}
+      # Change to "preserve" to keep data and run with sample data
+      - INIT_MODE=reset
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    networks:
+      - instapay-net
+
+  payment-db:
+    build:
+      context: ./payment-db
+      dockerfile: Dockerfile
+    environment:
+      - POSTGRES_DB=payment_db
+      - POSTGRES_USER=instapay
+      - POSTGRES_PASSWORD=${PAYMENT_DB_PASSWORD}
+      # Change to "preserve" to keep data and run with sample data
+      - INIT_MODE=reset
+    ports:
+      - "5433:5432"
+    volumes:
+      - payment-db-data:/var/lib/postgresql/data
+    networks:
+      - instapay-net
+
+volumes:
+  auth-db-data:
+    driver: local
+  payment-db-data:
+    driver: local
+
+networks:
+  instapay-net:
+    driver: bridge
