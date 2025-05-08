@@ -1,22 +1,66 @@
 version: "3.8"
 
 services:
-  auth-db:
+  api-gateway:
     build:
-      context: ./auth-db
-      dockerfile: Dockerfile
-    environment:
-      - POSTGRES_DB=auth_db
-      - POSTGRES_USER=instapay
-      - POSTGRES_PASSWORD=${AUTH_DB_PASSWORD}
-      # Change to "preserve" to keep data and run with sample data
-      - INIT_MODE=reset
+      context: ../../services/api-gateway
     ports:
-      - "5432:5432"
-    volumes:
-      - auth-db-data:/var/lib/postgresql/data
+      - "4000:4000"
+    depends_on:
+      - transaction-service
+      - reporting-service
+      - notification-service
     networks:
       - instapay-net
+    environment:
+      - TRANSACTION_SERVICE_URL=http://transaction-service:5001
+      - NOTIFICATION_SERVICE_URL=http://notification-service:5002
+      - REPORTING_SERVICE_URL=http://reporting-service:5003
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
+
+  transaction-service:
+    build:
+      context: ../../services/transaction-service
+    networks:
+      - instapay-net
+    environment:
+      - DB_HOST=payment-db
+      - DB_PORT=5432
+      - DB_NAME=payment_db
+      - DB_USER=instapay
+      - DB_PASSWORD=${PAYMENT_DB_PASSWORD}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
+    depends_on:
+      - payment-db
+
+  notification-service:
+    build:
+      context: ../../services/notification-service
+    networks:
+      - instapay-net
+    environment:
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
+    depends_on:
+      - payment-db
+
+  reporting-service:
+    build:
+      context: ../../services/reporting-service
+    networks:
+      - instapay-net
+    environment:
+      - DB_HOST=payment-db
+      - DB_PORT=5432
+      - DB_NAME=payment_db
+      - DB_USER=instapay
+      - DB_PASSWORD=${PAYMENT_DB_PASSWORD}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
+    depends_on:
+      - payment-db
 
   payment-db:
     build:
@@ -28,16 +72,14 @@ services:
       - POSTGRES_PASSWORD=${PAYMENT_DB_PASSWORD}
       # Change to "preserve" to keep data and run with sample data
       - INIT_MODE=reset
-    ports:
-      - "5433:5432"
     volumes:
-      - payment-db-data:/var/lib/postgresql/data
+      - type: volume
+        source: payment-db-data
+        target: /var/lib/postgresql/data
     networks:
       - instapay-net
 
 volumes:
-  auth-db-data:
-    driver: local
   payment-db-data:
     driver: local
 

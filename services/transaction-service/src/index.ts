@@ -12,17 +12,18 @@ import {
 } from "@clerk/express";
 
 const app = express();
-const PORT = 5000;
+const PORT = 5001;
 
+app.use(express.json());
 app.use(clerkMiddleware());
 
 app.get(
   "/protected",
   (req: Request, res: Response, next: NextFunction) => {
-    console.log("protected route");
+    console.log("transaction service protected route");
     next();
   },
-  requireAuth({ signInUrl: "/signin" }),
+  requireAuth({ signInUrl: "/auth/signin" }),
   async (req: Request, res: Response): Promise<void> => {
     const { userId } = getAuth(req);
 
@@ -32,7 +33,7 @@ app.get(
     }
 
     const user = await clerkClient.users.getUser(userId);
-    res.json({ user });
+    res.json({ message: "transaction service protected route", user });
   }
 );
 
