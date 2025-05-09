@@ -19,8 +19,12 @@ export const accounts = pgTable("accounts", {
 
 export const transactions = pgTable("transactions", {
   id: uuid("id").defaultRandom().primaryKey(),
-  fromAccountId: uuid("from_account_id").notNull(),
-  toAccountId: uuid("to_account_id").notNull(),
+  fromAccountId: uuid("from_account_id")
+    .references(() => accounts.id)
+    .notNull(),
+  toAccountId: uuid("to_account_id")
+    .references(() => accounts.id)
+    .notNull(),
   amount: real("amount").notNull(),
   currency: char("currency", { length: 3 }).notNull(),
   status: varchar("status", { length: 20 }).notNull(),
@@ -30,7 +34,7 @@ export const transactions = pgTable("transactions", {
 
 export const notifications = pgTable("notifications", {
   id: uuid("id").defaultRandom().primaryKey(),
-  userId: uuid("user_id").notNull(),
+  userId: varchar("user_id", { length: 255 }).notNull(),
   type: varchar("type", { length: 50 }).notNull(),
   message: text("message").notNull(),
   isRead: boolean("is_read").notNull().default(false),
