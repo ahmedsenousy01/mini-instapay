@@ -12,6 +12,11 @@ import {
 
 const router = Router();
 
+// Helper function to normalize currency codes
+const normalizeCurrency = (currency: string): string => {
+  return currency.trim().toUpperCase();
+};
+
 // Deposit funds
 router.post(
   "/deposit",
@@ -37,6 +42,8 @@ router.post(
         return;
       }
 
+      const normalizedCurrency = normalizeCurrency(currency);
+
       const result = await db.transaction(
         async (tx) => {
           // Verify account ownership and currency match
@@ -51,7 +58,7 @@ router.post(
             throw new Error("Invalid account");
           }
 
-          if (account.currency !== currency.toUpperCase()) {
+          if (account.currency !== normalizedCurrency) {
             throw new Error("Currency mismatch");
           }
 
@@ -66,7 +73,7 @@ router.post(
               fromAccountId: accountId, // Same account for deposit
               toAccountId: accountId,
               amount,
-              currency: currency.toUpperCase(),
+              currency: normalizedCurrency,
               status: "COMPLETED" as TransactionStatus,
               type: "DEPOSIT" as TransactionType,
               completedAt: new Date(),
@@ -83,7 +90,7 @@ router.post(
           await tx.insert(notifications).values({
             userId,
             type: "DEPOSIT_COMPLETED",
-            message: `Deposited ${amount} ${currency.toUpperCase()} to account ${accountId}`,
+            message: `Deposited ${amount} ${normalizedCurrency} to account ${accountId}`,
           });
 
           return depositTransaction;
@@ -133,6 +140,8 @@ router.post(
         return;
       }
 
+      const normalizedCurrency = normalizeCurrency(currency);
+
       const result = await db.transaction(
         async (tx) => {
           // Verify account ownership and currency match
@@ -147,7 +156,7 @@ router.post(
             throw new Error("Invalid account");
           }
 
-          if (account.currency !== currency.toUpperCase()) {
+          if (account.currency !== normalizedCurrency) {
             throw new Error("Currency mismatch");
           }
 
@@ -167,7 +176,7 @@ router.post(
               fromAccountId: accountId,
               toAccountId: accountId,
               amount,
-              currency: currency.toUpperCase(),
+              currency: normalizedCurrency,
               status: "COMPLETED" as TransactionStatus,
               type: "WITHDRAWAL" as TransactionType,
               completedAt: new Date(),
@@ -184,7 +193,7 @@ router.post(
           await tx.insert(notifications).values({
             userId,
             type: "WITHDRAWAL_COMPLETED",
-            message: `Withdrawn ${amount} ${currency.toUpperCase()} from account ${accountId}`,
+            message: `Withdrawn ${amount} ${normalizedCurrency} from account ${accountId}`,
           });
 
           return withdrawalTransaction;

@@ -162,18 +162,28 @@ router.get(
 
       const accountIds = userAccounts.map((acc) => acc.id);
 
+      if (accountIds.length === 0) {
+        res.json([]);
+        return;
+      }
+
       // Build conditions array
       const conditions = [];
 
       if (type === "incoming") {
-        conditions.push(eq(transactions.toAccountId, accountIds[0]));
+        conditions.push(
+          or(...accountIds.map((id) => eq(transactions.toAccountId, id)))
+        );
       } else if (type === "outgoing") {
-        conditions.push(eq(transactions.fromAccountId, accountIds[0]));
+        conditions.push(
+          or(...accountIds.map((id) => eq(transactions.fromAccountId, id)))
+        );
       } else {
+        // For all transactions, match either as sender or receiver
         conditions.push(
           or(
-            eq(transactions.fromAccountId, accountIds[0]),
-            eq(transactions.toAccountId, accountIds[0])
+            or(...accountIds.map((id) => eq(transactions.fromAccountId, id))),
+            or(...accountIds.map((id) => eq(transactions.toAccountId, id)))
           )
         );
       }
@@ -193,8 +203,11 @@ router.get(
       }
 
       // Add pagination
-      const pageNum = parseInt(page as string);
-      const limitNum = parseInt(limit as string);
+      const pageNum = Math.max(1, parseInt(page as string) || 1);
+      const limitNum = Math.min(
+        100,
+        Math.max(1, parseInt(limit as string) || 10)
+      );
       const offset = (pageNum - 1) * limitNum;
 
       // Execute query with all conditions
@@ -236,6 +249,11 @@ router.get(
 
       const accountIds = userAccounts.map((acc) => acc.id);
 
+      if (accountIds.length === 0) {
+        res.status(404).json({ error: "Transaction not found" });
+        return;
+      }
+
       const transaction = await db
         .select()
         .from(transactions)
@@ -243,8 +261,8 @@ router.get(
           and(
             eq(transactions.id, transactionId),
             or(
-              eq(transactions.fromAccountId, accountIds[0]),
-              eq(transactions.toAccountId, accountIds[0])
+              or(...accountIds.map((id) => eq(transactions.fromAccountId, id))),
+              or(...accountIds.map((id) => eq(transactions.toAccountId, id)))
             )
           )
         )
