@@ -68,6 +68,14 @@ app.get(
   }
 );
 
+// Health check endpoint
+app.get("/health", (req: Request, res: Response) => {
+  res.status(200).json({
+    status: "OK",
+    message: "Transaction service is running",
+  });
+});
+
 // Start the server and listen on the specified port
 app.listen(PORT, () => {
   console.log(`Example app listening at http://localhost:${PORT}`);

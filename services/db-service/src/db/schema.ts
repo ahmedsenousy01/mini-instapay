@@ -1,4 +1,4 @@
-import { pgTable } from "drizzle-orm/pg-core";
+import { index, pgTable } from "drizzle-orm/pg-core";
 import {
   uuid,
   char,
@@ -17,20 +17,28 @@ export const accounts = pgTable("accounts", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const transactions = pgTable("transactions", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  fromAccountId: uuid("from_account_id")
-    .references(() => accounts.id)
-    .notNull(),
-  toAccountId: uuid("to_account_id")
-    .references(() => accounts.id)
-    .notNull(),
-  amount: real("amount").notNull(),
-  currency: char("currency", { length: 3 }).notNull(),
-  status: varchar("status", { length: 20 }).notNull(),
-  initiatedAt: timestamp("initiated_at").defaultNow().notNull(),
-  completedAt: timestamp("completed_at"),
-});
+export const transactions = pgTable(
+  "transactions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    fromAccountId: uuid("from_account_id")
+      .references(() => accounts.id)
+      .notNull(),
+    toAccountId: uuid("to_account_id")
+      .references(() => accounts.id)
+      .notNull(),
+    amount: real("amount").notNull(),
+    currency: char("currency", { length: 3 }).notNull(),
+    status: varchar("status", { length: 20 }).notNull(),
+    type: varchar("type", { length: 20 }).notNull(),
+    initiatedAt: timestamp("initiated_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("from_account_id_idx").on(table.fromAccountId),
+    index("to_account_id_idx").on(table.toAccountId),
+  ]
+);
 
 export const notifications = pgTable("notifications", {
   id: uuid("id").defaultRandom().primaryKey(),
