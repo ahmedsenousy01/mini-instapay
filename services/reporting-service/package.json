@@ -1,8 +1,8 @@
 {
-  "name": "auth-service",
+  "name": "reporting-service",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Reporting service",
+  "main": "dist/index.js",
   "type": "module",
   "scripts": {
     "build": "tsc",
@@ -15,11 +15,18 @@
   "packageManager": "pnpm@10.7.0",
   "dependencies": {
     "@clerk/express": "^1.4.14",
+    "@types/cors": "^2.8.18",
+    "cors": "^2.8.5",
     "dotenv": "^16.5.0",
-    "express": "^5.1.0"
+    "drizzle-orm": "^0.43.1",
+    "express": "^5.1.0",
+    "pg": "^8.15.6",
+    "zod": "^3.24.4"
   },
   "devDependencies": {
     "@types/express": "^5.0.1",
+    "@types/pg": "^8.15.1",
+    "drizzle-kit": "^0.31.1",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   }
