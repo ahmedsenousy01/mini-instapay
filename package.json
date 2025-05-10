@@ -1,0 +1,11 @@
+{
+  "name": "mini-instapay",
+  "version": "1.0.0",
+  "description": "MiniInstaPay is a microservices-based payment system built with Node.js, TypeScript, and PostgreSQL.",
+  "scripts": {
+    "start": "docker-compose -f infrastructure/docker/docker-compose.dev.yml up --build",
+    "stop": "docker-compose -f infrastructure/docker/docker-compose.dev.yml down"
+  },
+  "license": "ISC",
+  "packageManager": "pnpm@10.7.0"
+}
