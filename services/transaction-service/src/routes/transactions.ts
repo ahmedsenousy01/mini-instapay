@@ -12,6 +12,11 @@ import {
 
 const router = Router();
 
+// Helper function to normalize currency codes
+const normalizeCurrency = (currency: string): string => {
+  return currency.trim().toUpperCase();
+};
+
 // Initiate a transfer
 router.post(
   "/",
@@ -32,10 +37,17 @@ router.post(
         return;
       }
 
+      if (fromAccountId === toAccountId) {
+        res.status(400).json({ error: "Cannot transfer to the same account" });
+        return;
+      }
+
       if (typeof amount !== "number" || amount <= 0) {
         res.status(400).json({ error: "Invalid amount" });
         return;
       }
+
+      const normalizedCurrency = normalizeCurrency(currency);
 
       const result = await db.transaction(
         async (tx) => {
@@ -55,7 +67,7 @@ router.post(
             throw new Error("Insufficient balance");
           }
 
-          if (fromAccount.currency !== currency) {
+          if (fromAccount.currency !== normalizedCurrency) {
             throw new Error("Currency mismatch with source account");
           }
 
@@ -71,7 +83,7 @@ router.post(
             throw new Error("Destination account not found");
           }
 
-          if (toAccount.currency !== currency) {
+          if (toAccount.currency !== normalizedCurrency) {
             throw new Error("Currency mismatch with destination account");
           }
 
@@ -82,7 +94,7 @@ router.post(
               fromAccountId,
               toAccountId,
               amount,
-              currency,
+              currency: normalizedCurrency,
               status: "COMPLETED" as TransactionStatus, // Directly mark as completed since we're in a transaction
               type: "TRANSFER" as TransactionType,
               completedAt: new Date(),
@@ -105,12 +117,12 @@ router.post(
             {
               userId: fromAccount.userId,
               type: "TRANSACTION_SENT",
-              message: `Sent ${amount} ${currency} to account ${toAccountId}`,
+              message: `Sent ${amount} ${normalizedCurrency} to account ${toAccountId}`,
             },
             {
               userId: toAccount.userId,
               type: "TRANSACTION_RECEIVED",
-              message: `Received ${amount} ${currency} from account ${fromAccountId}`,
+              message: `Received ${amount} ${normalizedCurrency} from account ${fromAccountId}`,
             },
           ]);
 
@@ -341,39 +353,61 @@ router.patch(
         return;
       }
 
-      // Revert the transaction
-      await db
-        .update(accounts)
-        .set({ balance: fromAccount[0].balance + transaction[0].amount })
-        .where(eq(accounts.id, transaction[0].fromAccountId));
+      await db.transaction(
+        async (tx) => {
+          // lock rows
+          await tx
+            .select()
+            .from(accounts)
+            .where(eq(accounts.id, transaction[0].fromAccountId))
+            .for("update");
+          await tx
+            .select()
+            .from(accounts)
+            .where(eq(accounts.id, transaction[0].toAccountId))
+            .for("update");
 
-      await db
-        .update(accounts)
-        .set({ balance: toAccount[0].balance - transaction[0].amount })
-        .where(eq(accounts.id, transaction[0].toAccountId));
+          // Revert balances (double-check sufficient funds on dest account)
+          if (toAccount[0].balance < transaction[0].amount) {
+            throw new Error(
+              "Destination balance insufficient to revert transfer"
+            );
+          }
+          await tx
+            .update(accounts)
+            .set({ balance: fromAccount[0].balance + transaction[0].amount })
+            .where(eq(accounts.id, transaction[0].fromAccountId));
 
-      // Update transaction status
-      await db
-        .update(transactions)
-        .set({
-          status: "CANCELLED" as TransactionStatus,
-          completedAt: new Date(),
-        })
-        .where(eq(transactions.id, transactionId));
+          await tx
+            .update(accounts)
+            .set({ balance: toAccount[0].balance - transaction[0].amount })
+            .where(eq(accounts.id, transaction[0].toAccountId));
 
-      // Create notifications
-      await db.insert(notifications).values([
-        {
-          userId: fromAccount[0].userId,
-          type: "TRANSACTION_CANCELLED",
-          message: `Transaction of ${transaction[0].amount} ${transaction[0].currency} to account ${transaction[0].toAccountId} has been cancelled`,
+          // Mark as cancelled
+          await tx
+            .update(transactions)
+            .set({
+              status: "CANCELLED" as TransactionStatus,
+              completedAt: new Date(),
+            })
+            .where(eq(transactions.id, transactionId));
+
+          // Notifications
+          await tx.insert(notifications).values([
+            {
+              userId: fromAccount[0].userId,
+              type: "TRANSACTION_CANCELLED",
+              message: `Transaction of ${transaction[0].amount} ${transaction[0].currency} to account ${transaction[0].toAccountId} has been cancelled`,
+            },
+            {
+              userId: toAccount[0].userId,
+              type: "TRANSACTION_CANCELLED",
+              message: `Transaction of ${transaction[0].amount} ${transaction[0].currency} from account ${transaction[0].fromAccountId} has been cancelled`,
+            },
+          ]);
         },
-        {
-          userId: toAccount[0].userId,
-          type: "TRANSACTION_CANCELLED",
-          message: `Transaction of ${transaction[0].amount} ${transaction[0].currency} from account ${transaction[0].fromAccountId} has been cancelled`,
-        },
-      ]);
+        { isolationLevel: "serializable" }
+      );
 
       res.json({ message: "Transaction cancelled successfully" });
     } catch (error) {

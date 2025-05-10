@@ -91,22 +91,25 @@ router.post(
         return;
       }
 
-      const newAccount = await db
-        .insert(accounts)
-        .values({
+      const newAccount = await db.transaction(async (tx) => {
+        const accountResult = await tx
+          .insert(accounts)
+          .values({
+            userId,
+            currency: currency.toUpperCase(),
+            balance: 0,
+          })
+          .returning();
+
+        // Create notification
+        await tx.insert(notifications).values({
           userId,
-          currency: currency.toUpperCase(),
-          balance: 0,
-        })
-        .returning();
+          type: "ACCOUNT_CREATED",
+          message: `New ${currency} account created successfully`,
+        });
 
-      // Create notification
-      await db.insert(notifications).values({
-        userId,
-        type: "ACCOUNT_CREATED",
-        message: `New ${currency} account created successfully`,
+        return accountResult;
       });
-
       res.status(201).json(newAccount[0]);
     } catch (error) {
       console.error("Error creating account:", error);
