@@ -1,43 +1,29 @@
 import "dotenv/config";
-import express, {
-  type Request,
-  type Response,
-  type NextFunction,
-} from "express";
-import {
-  clerkClient,
-  clerkMiddleware,
-  getAuth,
-  requireAuth,
-} from "@clerk/express";
+import express from "express";
+import { clerkMiddleware } from "@clerk/express";
+import cors from "cors";
+import reportsRouter from "./routes/reports.js";
+import { errorHandler } from "./middleware/errorHandler.js";
 
 const app = express();
-const PORT = 5003;
+const PORT = process.env.PORT || 5003;
 
+app.use(cors());
 app.use(express.json());
+
+// Health check endpoint - before auth middleware
+app.get("/health", (req, res) => {
+  res.json({ status: "ok", message: "Reporting service is running" });
+});
+
+// Auth and routes
 app.use(clerkMiddleware());
+app.use("/", reportsRouter);
 
-app.get(
-  "/protected",
-  (req: Request, res: Response, next: NextFunction) => {
-    console.log("reporting service protected route");
-    next();
-  },
-  requireAuth({ signInUrl: "/auth/signin" }),
-  async (req: Request, res: Response): Promise<void> => {
-    const { userId } = getAuth(req);
-
-    if (!userId) {
-      res.status(401).json({ error: "Unauthorized" });
-      return;
-    }
-
-    const user = await clerkClient.users.getUser(userId);
-    res.json({ message: "reporting service protected route", user });
-  }
-);
+// Global error handler
+app.use(errorHandler);
 
 // Start the server and listen on the specified port
 app.listen(PORT, () => {
-  console.log(`Example app listening at http://localhost:${PORT}`);
+  console.log(`Reporting service listening on port ${PORT}`);
 });

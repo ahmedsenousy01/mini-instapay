@@ -1,4 +1,9 @@
-import { Router, type Request, type Response } from "express";
+import {
+  Router,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import { requireAuth, getAuth } from "@clerk/express";
 import { eq, and, or, between, desc } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -9,8 +14,37 @@ import {
   type TransactionType,
   type TransactionStatus,
 } from "../db/schema.js";
+import {
+  ValidationError,
+  NotFoundError,
+  UnauthorizedError,
+} from "../types/errors.js";
+import { z } from "zod";
 
 const router = Router();
+
+// Validation schemas
+const transferSchema = z.object({
+  fromAccountId: z.string().uuid(),
+  toAccountId: z.string().uuid(),
+  amount: z.number().positive(),
+  currency: z.string().length(3),
+});
+
+const listTransactionsSchema = z.object({
+  type: z.enum(["incoming", "outgoing"]).optional(),
+  status: z.enum(["PENDING", "COMPLETED", "FAILED", "CANCELLED"]).optional(),
+  fromDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  toDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
+  page: z.string().regex(/^\d+$/).default("1"),
+  limit: z.string().regex(/^\d+$/).default("10"),
+});
 
 // Helper function to normalize currency codes
 const normalizeCurrency = (currency: string): string => {
@@ -21,30 +55,18 @@ const normalizeCurrency = (currency: string): string => {
 router.post(
   "/",
   requireAuth(),
-  async (req: Request, res: Response): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
-        res.status(401).json({ error: "Unauthorized" });
-        return;
+        throw new UnauthorizedError("Unauthorized");
       }
 
-      const { fromAccountId, toAccountId, amount, currency } = req.body;
-
-      // Validate input
-      if (!fromAccountId || !toAccountId || !amount || !currency) {
-        res.status(400).json({ error: "Missing required fields" });
-        return;
-      }
+      const { fromAccountId, toAccountId, amount, currency } =
+        transferSchema.parse(req.body);
 
       if (fromAccountId === toAccountId) {
-        res.status(400).json({ error: "Cannot transfer to the same account" });
-        return;
-      }
-
-      if (typeof amount !== "number" || amount <= 0) {
-        res.status(400).json({ error: "Invalid amount" });
-        return;
+        throw new ValidationError("Cannot transfer to the same account");
       }
 
       const normalizedCurrency = normalizeCurrency(currency);
@@ -59,16 +81,20 @@ router.post(
             .limit(1)
             .for("update"); // Lock the row for update
 
-          if (!fromAccount || fromAccount.userId !== userId) {
-            throw new Error("Invalid source account");
+          if (!fromAccount) {
+            throw new NotFoundError("Source account not found");
+          }
+
+          if (fromAccount.userId !== userId) {
+            throw new ValidationError("Access denied to source account");
           }
 
           if (fromAccount.balance < amount) {
-            throw new Error("Insufficient balance");
+            throw new ValidationError("Insufficient balance");
           }
 
           if (fromAccount.currency !== normalizedCurrency) {
-            throw new Error("Currency mismatch with source account");
+            throw new ValidationError("Currency mismatch with source account");
           }
 
           // Verify destination account exists and check currency
@@ -80,11 +106,13 @@ router.post(
             .for("update"); // Lock the row for update
 
           if (!toAccount) {
-            throw new Error("Destination account not found");
+            throw new NotFoundError("Destination account not found");
           }
 
           if (toAccount.currency !== normalizedCurrency) {
-            throw new Error("Currency mismatch with destination account");
+            throw new ValidationError(
+              "Currency mismatch with destination account"
+            );
           }
 
           // Create transaction
@@ -135,12 +163,7 @@ router.post(
 
       res.status(201).json(result);
     } catch (error) {
-      console.error("Error creating transaction:", error);
-      if (error instanceof Error) {
-        res.status(400).json({ error: error.message });
-      } else {
-        res.status(500).json({ error: "Internal server error" });
-      }
+      next(error);
     }
   }
 );
@@ -149,22 +172,14 @@ router.post(
 router.get(
   "/",
   requireAuth(),
-  async (req: Request, res: Response): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
-        res.status(401).json({ error: "Unauthorized" });
-        return;
+        throw new UnauthorizedError("Unauthorized");
       }
 
-      const {
-        type,
-        status,
-        fromDate,
-        toDate,
-        page = "1",
-        limit = "10",
-      } = req.query;
+      const query = listTransactionsSchema.parse(req.query);
 
       // Get user's accounts
       const userAccounts = await db
@@ -182,11 +197,11 @@ router.get(
       // Build conditions array
       const conditions = [];
 
-      if (type === "incoming") {
+      if (query.type === "incoming") {
         conditions.push(
           or(...accountIds.map((id) => eq(transactions.toAccountId, id)))
         );
-      } else if (type === "outgoing") {
+      } else if (query.type === "outgoing") {
         conditions.push(
           or(...accountIds.map((id) => eq(transactions.fromAccountId, id)))
         );
@@ -200,41 +215,38 @@ router.get(
         );
       }
 
-      if (status) {
-        conditions.push(eq(transactions.status, status as TransactionStatus));
+      if (query.status) {
+        conditions.push(eq(transactions.status, query.status));
       }
 
-      if (fromDate && toDate) {
-        conditions.push(
-          between(
-            transactions.initiatedAt,
-            new Date(fromDate as string),
-            new Date(toDate as string)
-          )
-        );
+      if (query.fromDate && query.toDate) {
+        const start = new Date(query.fromDate);
+        const end = new Date(query.toDate);
+        start.setHours(0, 0, 0, 0);
+        end.setHours(23, 59, 59, 999);
+
+        if (start > end) {
+          throw new ValidationError("Start date must be before end date");
+        }
+
+        conditions.push(between(transactions.initiatedAt, start, end));
       }
 
-      // Add pagination
-      const pageNum = Math.max(1, parseInt(page as string) || 1);
-      const limitNum = Math.min(
-        100,
-        Math.max(1, parseInt(limit as string) || 10)
-      );
-      const offset = (pageNum - 1) * limitNum;
+      const page = parseInt(query.page);
+      const limit = parseInt(query.limit);
+      const offset = (page - 1) * limit;
 
-      // Execute query with all conditions
-      const result = await db
+      const results = await db
         .select()
         .from(transactions)
         .where(and(...conditions))
-        .limit(limitNum)
-        .offset(offset)
-        .orderBy(desc(transactions.initiatedAt));
+        .orderBy(desc(transactions.initiatedAt))
+        .limit(limit)
+        .offset(offset);
 
-      res.json(result);
+      res.json(results);
     } catch (error) {
-      console.error("Error fetching transactions:", error);
-      res.status(500).json({ error: "Internal server error" });
+      next(error);
     }
   }
 );

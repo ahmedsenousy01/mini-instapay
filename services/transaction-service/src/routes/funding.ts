@@ -1,4 +1,9 @@
-import { Router, type Request, type Response } from "express";
+import {
+  Router,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import { requireAuth, getAuth } from "@clerk/express";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
@@ -9,8 +14,17 @@ import {
   type TransactionType,
   type TransactionStatus,
 } from "../db/schema.js";
+import { ValidationError, NotFoundError } from "../types/errors.js";
+import { z } from "zod";
 
 const router = Router();
+
+// Validation schemas
+const fundingSchema = z.object({
+  accountId: z.string().uuid(),
+  amount: z.number().positive(),
+  currency: z.string().length(3),
+});
 
 // Helper function to normalize currency codes
 const normalizeCurrency = (currency: string): string => {
@@ -21,27 +35,14 @@ const normalizeCurrency = (currency: string): string => {
 router.post(
   "/deposit",
   requireAuth(),
-  async (req: Request, res: Response): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
-        res.status(401).json({ error: "Unauthorized" });
-        return;
+        throw new ValidationError("Unauthorized");
       }
 
-      const { accountId, amount, currency } = req.body;
-
-      // Validate input
-      if (!accountId || !amount || !currency) {
-        res.status(400).json({ error: "Missing required fields" });
-        return;
-      }
-
-      if (typeof amount !== "number" || amount <= 0) {
-        res.status(400).json({ error: "Invalid amount" });
-        return;
-      }
-
+      const { accountId, amount, currency } = fundingSchema.parse(req.body);
       const normalizedCurrency = normalizeCurrency(currency);
 
       const result = await db.transaction(
@@ -54,12 +55,16 @@ router.post(
             .limit(1)
             .for("update");
 
-          if (!account || account.userId !== userId) {
-            throw new Error("Invalid account");
+          if (!account) {
+            throw new NotFoundError("Account not found");
+          }
+
+          if (account.userId !== userId) {
+            throw new ValidationError("Access denied to this account");
           }
 
           if (account.currency !== normalizedCurrency) {
-            throw new Error("Currency mismatch");
+            throw new ValidationError("Currency mismatch with account");
           }
 
           // TODO: Integrate with payment provider (e.g., Stripe) here
@@ -105,12 +110,7 @@ router.post(
         transaction: result,
       });
     } catch (error) {
-      console.error("Error processing deposit:", error);
-      if (error instanceof Error) {
-        res.status(400).json({ error: error.message });
-      } else {
-        res.status(500).json({ error: "Internal server error" });
-      }
+      next(error);
     }
   }
 );
@@ -119,27 +119,14 @@ router.post(
 router.post(
   "/withdraw",
   requireAuth(),
-  async (req: Request, res: Response): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
-        res.status(401).json({ error: "Unauthorized" });
-        return;
+        throw new ValidationError("Unauthorized");
       }
 
-      const { accountId, amount, currency } = req.body;
-
-      // Validate input
-      if (!accountId || !amount || !currency) {
-        res.status(400).json({ error: "Missing required fields" });
-        return;
-      }
-
-      if (typeof amount !== "number" || amount <= 0) {
-        res.status(400).json({ error: "Invalid amount" });
-        return;
-      }
-
+      const { accountId, amount, currency } = fundingSchema.parse(req.body);
       const normalizedCurrency = normalizeCurrency(currency);
 
       const result = await db.transaction(
@@ -152,17 +139,21 @@ router.post(
             .limit(1)
             .for("update");
 
-          if (!account || account.userId !== userId) {
-            throw new Error("Invalid account");
+          if (!account) {
+            throw new NotFoundError("Account not found");
+          }
+
+          if (account.userId !== userId) {
+            throw new ValidationError("Access denied to this account");
           }
 
           if (account.currency !== normalizedCurrency) {
-            throw new Error("Currency mismatch");
+            throw new ValidationError("Currency mismatch with account");
           }
 
           // Check sufficient balance
           if (account.balance < amount) {
-            throw new Error("Insufficient balance");
+            throw new ValidationError("Insufficient balance");
           }
 
           // TODO: Integrate with payment provider (e.g., Stripe) here
@@ -208,12 +199,7 @@ router.post(
         transaction: result,
       });
     } catch (error) {
-      console.error("Error processing withdrawal:", error);
-      if (error instanceof Error) {
-        res.status(400).json({ error: error.message });
-      } else {
-        res.status(500).json({ error: "Internal server error" });
-      }
+      next(error);
     }
   }
 );

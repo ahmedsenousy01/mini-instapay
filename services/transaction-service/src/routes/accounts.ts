@@ -1,21 +1,32 @@
-import { Router, type Request, type Response } from "express";
+import {
+  Router,
+  type Request,
+  type Response,
+  type NextFunction,
+} from "express";
 import { requireAuth, getAuth } from "@clerk/express";
 import { eq } from "drizzle-orm";
 import { db } from "../db/index.js";
 import { accounts, notifications } from "../db/schema.js";
+import { ValidationError, NotFoundError } from "../types/errors.js";
+import { z } from "zod";
 
 const router = Router();
+
+// Validation schema for creating account
+const createAccountSchema = z.object({
+  currency: z.string().length(3),
+});
 
 // List all accounts belonging to the authenticated user
 router.get(
   "/",
   requireAuth(),
-  async (req: Request, res: Response): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
-        res.status(401).json({ error: "Unauthorized" });
-        return;
+        throw new ValidationError("Unauthorized");
       }
 
       const userAccounts = await db
@@ -30,8 +41,7 @@ router.get(
 
       res.json(userAccounts);
     } catch (error) {
-      console.error("Error fetching accounts:", error);
-      res.status(500).json({ error: "Internal server error" });
+      next(error);
     }
   }
 );
@@ -40,12 +50,11 @@ router.get(
 router.get(
   "/:accountId",
   requireAuth(),
-  async (req: Request, res: Response): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
-        res.status(401).json({ error: "Unauthorized" });
-        return;
+        throw new ValidationError("Unauthorized");
       }
 
       const { accountId } = req.params;
@@ -56,19 +65,16 @@ router.get(
         .limit(1);
 
       if (!account.length) {
-        res.status(404).json({ error: "Account not found" });
-        return;
+        throw new NotFoundError("Account not found");
       }
 
       if (account[0].userId !== userId) {
-        res.status(403).json({ error: "Forbidden" });
-        return;
+        throw new ValidationError("Access denied to this account");
       }
 
       res.json(account[0]);
     } catch (error) {
-      console.error("Error fetching account:", error);
-      res.status(500).json({ error: "Internal server error" });
+      next(error);
     }
   }
 );
@@ -77,19 +83,14 @@ router.get(
 router.post(
   "/",
   requireAuth(),
-  async (req: Request, res: Response): Promise<void> => {
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
-        res.status(401).json({ error: "Unauthorized" });
-        return;
+        throw new ValidationError("Unauthorized");
       }
 
-      const { currency } = req.body;
-      if (!currency || typeof currency !== "string" || currency.length !== 3) {
-        res.status(400).json({ error: "Invalid currency code" });
-        return;
-      }
+      const { currency } = createAccountSchema.parse(req.body);
 
       const newAccount = await db.transaction(async (tx) => {
         const accountResult = await tx
@@ -110,10 +111,10 @@ router.post(
 
         return accountResult;
       });
+
       res.status(201).json(newAccount[0]);
     } catch (error) {
-      console.error("Error creating account:", error);
-      res.status(500).json({ error: "Internal server error" });
+      next(error);
     }
   }
 );
