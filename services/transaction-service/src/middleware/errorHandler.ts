@@ -28,10 +28,11 @@ export const errorHandler: ErrorRequestHandler = (
 
   // Handle Zod validation errors
   if (error instanceof z.ZodError) {
+    const isProduction = process.env.NODE_ENV === "production";
     res.status(400).json({
       error: "VALIDATION_ERROR",
       message: "Invalid request parameters",
-      details: error.errors,
+      details: isProduction ? undefined : error.errors,
     });
     return;
   }

@@ -15,7 +15,6 @@
   "packageManager": "pnpm@10.7.0",
   "dependencies": {
     "@clerk/express": "^1.4.14",
-    "@types/cors": "^2.8.18",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "drizzle-orm": "^0.43.1",
@@ -24,6 +23,7 @@
     "zod": "^3.24.4"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.18",
     "@types/express": "^5.0.1",
     "@types/pg": "^8.15.1",
     "drizzle-kit": "^0.31.1",

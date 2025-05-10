@@ -10,6 +10,12 @@ export class BaseError extends Error {
   }
 }
 
+export class UnauthorizedError extends BaseError {
+  constructor(message: string) {
+    super(message, 401, "UNAUTHORIZED");
+  }
+}
+
 export class ValidationError extends BaseError {
   constructor(message: string) {
     super(message, 400, "VALIDATION_ERROR");

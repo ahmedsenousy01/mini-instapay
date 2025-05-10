@@ -14,7 +14,11 @@ import {
   type TransactionType,
   type TransactionStatus,
 } from "../db/schema.js";
-import { ValidationError, NotFoundError } from "../types/errors.js";
+import {
+  ValidationError,
+  NotFoundError,
+  UnauthorizedError,
+} from "../types/errors.js";
 import { z } from "zod";
 
 const router = Router();
@@ -55,7 +59,7 @@ router.post(
     try {
       const { userId } = getAuth(req);
       if (!userId) {
-        throw new ValidationError("Unauthorized");
+        throw new UnauthorizedError("Unauthorized");
       }
 
       const { fromAccountId, toAccountId, amount, currency } =
@@ -172,7 +176,7 @@ router.get(
     try {
       const { userId } = getAuth(req);
       if (!userId) {
-        throw new ValidationError("Unauthorized");
+        throw new UnauthorizedError("Unauthorized");
       }
 
       const query = listTransactionsSchema.parse(req.query);

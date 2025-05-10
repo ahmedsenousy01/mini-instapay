@@ -31,6 +31,12 @@ interface TransactionRow {
   completedAt: Date | null;
 }
 
+interface BalanceContext {
+  scope: "account" | "user";
+  scopeId: string;
+  accountIds?: string[];
+}
+
 async function fetchTransactions(
   params: ReportParams
 ): Promise<TransactionRow[]> {
@@ -99,38 +105,59 @@ async function fetchTransactions(
 function groupTransactions(
   txs: TransactionRow[],
   groupBy: string,
-  scopeId: string
+  context: BalanceContext
 ) {
   if (!groupBy) return txs;
 
   const groups = new Map();
 
-  const getGroupKey = (tx: TransactionRow, scopeId: string) => {
+  const getGroupKey = (tx: TransactionRow, context: BalanceContext) => {
     const keys: string[] = [];
 
     groupBy.split(",").forEach((key) => {
       switch (key.trim()) {
-        case "day":
+        case "day": {
           keys.push(tx.initiatedAt.toISOString().split("T")[0]);
           break;
-        case "week":
+        }
+        case "week": {
           const dateCopy = new Date(tx.initiatedAt);
           const day = dateCopy.getDay();
           dateCopy.setDate(dateCopy.getDate() - day);
           dateCopy.setHours(0, 0, 0, 0);
           keys.push(dateCopy.toISOString().split("T")[0]);
           break;
-        case "month":
+        }
+        case "month": {
           keys.push(tx.initiatedAt.toISOString().substring(0, 7)); // YYYY-MM
           break;
-        case "currency":
+        }
+        case "currency": {
           keys.push(tx.currency);
           break;
-        case "account":
-          keys.push(
-            tx.fromAccountId === scopeId ? tx.toAccountId : tx.fromAccountId
-          );
+        }
+        case "account": {
+          // Use counterparty account ID for grouping
+          if (context.scope === "account") {
+            keys.push(
+              tx.fromAccountId === context.scopeId
+                ? tx.toAccountId
+                : tx.fromAccountId
+            );
+          } else {
+            // For user scope, use the external account
+            const isFromUser = context.accountIds?.includes(tx.fromAccountId);
+            const isToUser = context.accountIds?.includes(tx.toAccountId);
+            if (isFromUser && !isToUser) {
+              keys.push(tx.toAccountId); // External recipient
+            } else if (!isFromUser && isToUser) {
+              keys.push(tx.fromAccountId); // External sender
+            } else {
+              keys.push("internal"); // Transfer between user's accounts
+            }
+          }
           break;
+        }
       }
     });
 
@@ -138,7 +165,7 @@ function groupTransactions(
   };
 
   txs.forEach((tx) => {
-    const key = getGroupKey(tx, scopeId);
+    const key = getGroupKey(tx, context);
     if (!groups.has(key)) {
       groups.set(key, {
         transactions: [],
@@ -149,7 +176,7 @@ function groupTransactions(
 
     const group = groups.get(key);
     group.transactions.push(tx);
-    group.totalVolume += getSignedAmount(tx, scopeId);
+    group.totalVolume += getSignedAmount(tx, context);
     group.transactionCount++;
   });
 
@@ -178,15 +205,31 @@ function groupTransactions(
   });
 }
 
-function getSignedAmount(tx: TransactionRow, scopeId: string): number {
-  if (tx.type === "TRANSFER") {
-    if (tx.fromAccountId === scopeId) return -tx.amount;
-    if (tx.toAccountId === scopeId) return tx.amount;
+function getSignedAmount(tx: TransactionRow, context: BalanceContext): number {
+  if (context.scope === "user") {
+    const isOutgoing = context.accountIds?.includes(tx.fromAccountId);
+    const isIncoming = context.accountIds?.includes(tx.toAccountId);
+
+    if (tx.type === "TRANSFER") {
+      if (isOutgoing && !isIncoming) return -tx.amount;
+      if (!isOutgoing && isIncoming) return tx.amount;
+      return 0; // Internal transfer between user's accounts
+    }
+    if (tx.type === "DEPOSIT" && isIncoming) return tx.amount;
+    if (tx.type === "WITHDRAWAL" && isOutgoing) return -tx.amount;
     return 0;
   }
-  if (tx.type === "DEPOSIT") return tx.toAccountId === scopeId ? tx.amount : 0;
+
+  // Account scope
+  if (tx.type === "TRANSFER") {
+    if (tx.fromAccountId === context.scopeId) return -tx.amount;
+    if (tx.toAccountId === context.scopeId) return tx.amount;
+    return 0;
+  }
+  if (tx.type === "DEPOSIT")
+    return tx.toAccountId === context.scopeId ? tx.amount : 0;
   if (tx.type === "WITHDRAWAL")
-    return tx.fromAccountId === scopeId ? -tx.amount : 0;
+    return tx.fromAccountId === context.scopeId ? -tx.amount : 0;
   return 0;
 }
 
@@ -217,12 +260,14 @@ async function getAccountBalance(
             eq(transactions.fromAccountId, accountId),
             eq(transactions.toAccountId, accountId)
           ),
-          gte(transactions.initiatedAt, beforeDate)
+          gte(transactions.initiatedAt, beforeDate),
+          eq(transactions.status, "COMPLETED")
         )
       );
 
     const laterSum = laterTransactions.reduce(
-      (sum, tx) => sum + getSignedAmount(tx, accountId),
+      (sum, tx) =>
+        sum + getSignedAmount(tx, { scope: "account", scopeId: accountId }),
       0
     );
 
@@ -238,19 +283,32 @@ async function getAccountBalance(
 }
 
 async function calculateOpeningBalance(
-  accountId: string,
+  context: BalanceContext,
   startDate: Date
 ): Promise<number> {
-  return getAccountBalance(accountId, startDate);
+  if (context.scope === "account") {
+    return getAccountBalance(context.scopeId, startDate);
+  }
+
+  const userAccounts = await db
+    .select({ id: accounts.id })
+    .from(accounts)
+    .where(eq(accounts.userId, context.scopeId));
+
+  return (
+    await Promise.all(
+      userAccounts.map((a) => getAccountBalance(a.id, startDate))
+    )
+  ).reduce((sum, bal) => sum + bal, 0);
 }
 
 async function calculateClosingBalance(
   openingBalance: number,
   transactions: TransactionRow[],
-  scopeId: string
+  context: BalanceContext
 ): Promise<number> {
   const transactionSum = transactions.reduce(
-    (balance, tx) => balance + getSignedAmount(tx, scopeId),
+    (balance, tx) => balance + getSignedAmount(tx, context),
     0
   );
   return openingBalance + transactionSum;
@@ -266,14 +324,24 @@ export async function generateTransactionBalanceReport(params: ReportParams) {
     const startDate = new Date(params.startDate);
     startDate.setHours(0, 0, 0, 0);
 
-    const openingBalance = await calculateOpeningBalance(
-      params.scopeId,
-      startDate
-    );
+    const context: BalanceContext = {
+      scope: params.scope,
+      scopeId: params.scopeId,
+    };
+
+    if (params.scope === "user") {
+      const userAccounts = await db
+        .select({ id: accounts.id })
+        .from(accounts)
+        .where(eq(accounts.userId, params.scopeId));
+      context.accountIds = userAccounts.map((a) => a.id);
+    }
+
+    const openingBalance = await calculateOpeningBalance(context, startDate);
     const closingBalance = await calculateClosingBalance(
       openingBalance,
       transactions,
-      params.scopeId
+      context
     );
     const averageBalance = calculateAverageBalance(
       openingBalance,
@@ -283,7 +351,7 @@ export async function generateTransactionBalanceReport(params: ReportParams) {
     if (!params.groupBy) {
       // Return summary report
       const totalVolume = transactions.reduce(
-        (sum, tx) => sum + getSignedAmount(tx, params.scopeId),
+        (sum, tx) => sum + getSignedAmount(tx, context),
         0
       );
 
@@ -319,7 +387,7 @@ export async function generateTransactionBalanceReport(params: ReportParams) {
     const groupedData = groupTransactions(
       transactions,
       params.groupBy,
-      params.scopeId
+      context
     );
     return {
       scope: params.scope,
