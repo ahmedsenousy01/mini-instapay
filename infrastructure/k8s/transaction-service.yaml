@@ -4,6 +4,7 @@ metadata:
   name: transaction-service
   labels:
     app: transaction-service
+    team: instapay
 spec:
   replicas: 2
   selector:
@@ -13,6 +14,11 @@ spec:
     metadata:
       labels:
         app: transaction-service
+        team: instapay
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9180"
     spec:
       containers:
         - name: transaction-service
@@ -20,6 +26,7 @@ spec:
           imagePullPolicy: Never
           ports:
             - containerPort: 5001
+            - containerPort: 9180
           env:
             - name: NODE_ENV
               value: "production"
@@ -65,9 +72,15 @@ kind: Service
 metadata:
   name: transaction-service
 spec:
+  type: ClusterIP
   ports:
     - port: 5001
       targetPort: 5001
       protocol: TCP
+      name: http
+    - port: 9180
+      targetPort: 9180
+      protocol: TCP
+      name: metrics
   selector:
     app: transaction-service
