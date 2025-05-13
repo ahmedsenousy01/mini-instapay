@@ -1,0 +1,78 @@
+loki:
+  persistence:
+    enabled: true
+    size: 10Gi
+
+  # schema_config provided at this level for chart validation
+  schemaConfig:
+    configs:
+      - from: 2020-10-24
+        store: boltdb-shipper
+        object_store: filesystem
+        schema: v11
+        index:
+          prefix: index_
+          period: 24h
+
+  # loki.config as a string for the runtime config file content
+  # This will be the actual content of loki-config.yaml
+  config: |
+    server:
+      http_listen_port: 3100
+      grpc_listen_port: 9096
+
+    # Memberlist for single binary mode (usually localhost)
+    memberlist:
+      join_members:
+        - loki-0.loki-headless.monitoring.svc.cluster.local # Adjust if release name or namespace differs
+
+    # Using schema_config defined globally by the chart through loki.schemaConfig
+    # schema_config: # This section will be populated by the chart based on loki.schemaConfig above
+
+    storage_config:
+      boltdb_shipper:
+        active_index_directory: /var/loki/index
+        cache_location: /var/loki/cache
+        shared_store: filesystem
+      filesystem:
+        directory: /var/loki/chunks
+
+    # Add other necessary default sections for a basic monolithic setup
+    ingester:
+      lifecycler:
+        address: 127.0.0.1
+        ring:
+          kvstore:
+            store: inmemory
+          replication_factor: 1
+        final_sleep: 0s
+      chunk_idle_period: 1h       # How long to wait before flushing an idle chunk
+      max_chunk_age: 1h           # How long to wait before flushing a chunk regardless of idle status
+      chunk_target_size: 1048576  # 1MB target size
+      chunk_retain_period: 30s    # How long to keep chunks in memory after flushing
+      max_transfer_retries: 0     # Disable http retries for local fs
+
+    limits_config:
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h # 7 days
+      # Per-tenant limits
+      # ingestion_rate_mb: 15
+      # ingestion_burst_size_mb: 20
+
+    # Compactor is generally for object stores, but boltdb-shipper also uses it for retention
+    compactor:
+      working_directory: /var/loki/compactor
+      shared_store: filesystem
+      compaction_interval: 10m
+      retention_enabled: true # Enable retention
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+
+    # Table manager also for retention with boltdb-shipper
+    table_manager:
+      retention_deletes_enabled: true
+      retention_period: 168h # 7 days, same as reject_old_samples_max_age
+
+# Disable Minio if it's enabled by default, as we want filesystem persistence
+minio:
+  enabled: false

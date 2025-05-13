@@ -1,0 +1,35 @@
+config:
+  clients:
+    - url: http://loki-gateway.monitoring.svc.cluster.local/loki/api/v1/push
+      tenant_id: tenant1 # Define a tenant ID
+
+# Default scrape_configs in the promtail chart are usually good for k8s
+# We can add extra relabel_configs if needed later for specific metadata handling
+# Example:
+# extraScrapeConfigs:
+#   - job_name: my-custom-app
+#     static_configs:
+#       - targets:
+#           - localhost
+#         labels:
+#           __path__: /var/log/my-custom-app.log
+
+# Ensure Promtail has permissions to read logs from all nodes/pods
+# The chart usually sets up appropriate RBAC (ClusterRole, ClusterRoleBinding, ServiceAccount)
+
+# If running on Minikube, sometimes Promtail needs specific volume mounts if default paths are different
+# For example, if Minikube mounts Docker logs differently.
+# Default chart values usually handle common setups.
+# Example for Minikube if /var/log/pods is not standard (less common now):
+# extraVolumeMounts:
+#  - name: varlogpods
+#    mountPath: /var/log/pods
+#    hostPath:
+#      path: /var/log/pods # Or minikube specific path
+#  - name: varlogcontainers
+#    mountPath: /var/log/containers
+#    hostPath:
+#      path: /var/log/containers # Or minikube specific path
+
+# Ensure promtail runs as a DaemonSet to cover all nodes
+# This is the default for the grafana/promtail chart.
