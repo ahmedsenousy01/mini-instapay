@@ -3,3 +3,6 @@
 **/.env
 
 **/dist
+
+# Ignore generated Kubernetes secrets file
+infrastructure/k8s/k8s-secrets.yaml

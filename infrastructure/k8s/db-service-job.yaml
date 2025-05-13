@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: db-schema-push
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      containers:
+        - name: db-service
+          image: mini-instapay/db-service:latest
+          imagePullPolicy: Never
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: db-secrets
+                  key: database-url
+      restartPolicy: OnFailure

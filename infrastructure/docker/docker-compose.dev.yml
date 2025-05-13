@@ -2,6 +2,8 @@ version: "3.8"
 
 services:
   api-gateway:
+    env_file:
+      - .env
     build:
       context: ../../services/api-gateway
     restart: unless-stopped
@@ -23,10 +25,10 @@ services:
       - TRANSACTION_SERVICE_URL=http://transaction-service:5001
       - NOTIFICATION_SERVICE_URL=http://notification-service:5002
       - REPORTING_SERVICE_URL=http://reporting-service:5003
-      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
-      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
 
   transaction-service:
+    env_file:
+      - .env
     build:
       context: ../../services/transaction-service
     restart: unless-stopped
@@ -40,12 +42,12 @@ services:
       - instapay-net
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
-      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
     depends_on:
       - postgres-db
 
   notification-service:
+    env_file:
+      - .env
     build:
       context: ../../services/notification-service
     restart: unless-stopped
@@ -59,12 +61,12 @@ services:
       - instapay-net
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
-      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
     depends_on:
       - postgres-db
 
   reporting-service:
+    env_file:
+      - .env
     build:
       context: ../../services/reporting-service
     restart: unless-stopped
@@ -77,12 +79,12 @@ services:
       - instapay-net
     environment:
       - DATABASE_URL=${DATABASE_URL}
-      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
-      - CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
     depends_on:
       - postgres-db
 
   db-service:
+    env_file:
+      - .env
     build:
       context: ../../services/db-service
     networks:
@@ -93,6 +95,8 @@ services:
       - postgres-db
 
   postgres-db:
+    env_file:
+      - .env
     image: postgres:17
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
@@ -106,6 +110,24 @@ services:
       - instapay-net
     ports:
       - "5432:5432"
+
+  frontend:
+    env_file:
+      - .env
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    networks:
+      - instapay-net
+    environment:
+      - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=${CLERK_PUBLISHABLE_KEY}
+      - CLERK_SECRET_KEY=${CLERK_SECRET_KEY}
+      - API_GATEWAY_URL=http://api-gateway:4000
+    depends_on:
+      - api-gateway
 
 volumes:
   payment-db-data:

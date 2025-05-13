@@ -1,0 +1,23 @@
+{
+  "name": "mini-instapay",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "stop": "docker-compose -f infrastructure/docker/docker-compose.dev.yml down",
+    "start": "docker-compose -f infrastructure/docker/docker-compose.dev.yml up -d --build",
+    "restart": "docker-compose -f infrastructure/docker/docker-compose.dev.yml down && docker-compose -f infrastructure/docker/docker-compose.dev.yml up -d --build --force-recreate",
+    "start:staging": "docker-compose -f infrastructure/docker/docker-compose.staging.yml up -d --build",
+    "stop:staging": "docker-compose -f infrastructure/docker/docker-compose.staging.yml down",
+    "restart:staging": "docker-compose -f infrastructure/docker/docker-compose.staging.yml down && docker-compose -f infrastructure/docker/docker-compose.staging.yml up -d --build --force-recreate",
+    "start:prod": "docker-compose -f infrastructure/docker/docker-compose.prod.yml up -d --build",
+    "stop:prod": "docker-compose -f infrastructure/docker/docker-compose.prod.yml down",
+    "restart:prod": "docker-compose -f infrastructure/docker/docker-compose.prod.yml down && docker-compose -f infrastructure/docker/docker-compose.prod.yml up -d --build --force-recreate",
+    "k8s:deploy": "cd infrastructure/k8s && ./deploy.sh",
+    "k8s:secrets": "cd infrastructure/k8s && ./setup-k8s-secrets.sh",
+    "k8s:delete": "cd infrastructure/k8s && minikube kubectl -- delete -f . || true"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "packageManager": "pnpm@10.7.0"
+}

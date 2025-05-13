@@ -2,7 +2,7 @@ import "dotenv/config";
 import express, { Request, Response, NextFunction } from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { clerkMiddleware, requireAuth } from "@clerk/express";
-
+import cors from "cors";
 /**
  * API Gateway for Mini-InstaPay
  *
@@ -19,31 +19,38 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 // Middleware
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+  })
+);
 app.use(express.json());
 app.use(clerkMiddleware());
 
 // Health check endpoint
-app.get("/health", (req: Request, res: Response) => {
+app.get("/api/health", (req: Request, res: Response) => {
   res.status(200).json({ status: "OK", message: "API Gateway is running" });
 });
 
 // Transaction routes - protected by auth
 app.use(
-  "/transactions",
+  "/api/transactions",
   requireAuth({ signInUrl: "/auth/signin" }),
   createProxyMiddleware({
     target:
       process.env.TRANSACTION_SERVICE_URL || "http://transaction-service:5001",
     changeOrigin: true,
     pathRewrite: {
-      "^/transactions": "",
+      "^/api/transactions": "",
     },
   })
 );
 
 // Notification routes - protected by auth
 app.use(
-  "/notifications",
+  "/api/notifications",
   requireAuth({ signInUrl: "/auth/signin" }),
   createProxyMiddleware({
     target:
@@ -51,21 +58,21 @@ app.use(
       "http://notification-service:5002",
     changeOrigin: true,
     pathRewrite: {
-      "^/notifications": "",
+      "^/api/notifications": "",
     },
   })
 );
 
 // Reporting routes - protected by auth
 app.use(
-  "/reports",
+  "/api/reports",
   requireAuth({ signInUrl: "/auth/signin" }),
   createProxyMiddleware({
     target:
       process.env.REPORTING_SERVICE_URL || "http://reporting-service:5003",
     changeOrigin: true,
     pathRewrite: {
-      "^/reports": "",
+      "^/api/reports": "",
     },
   })
 );
