@@ -6,9 +6,14 @@ import transactionRoutes from "./routes/transactions.js";
 import fundingRoutes from "./routes/funding.js";
 import cors from "cors";
 import { errorHandler } from "./middleware/errorHandler.js";
+import client from "prom-client";
 
 const app = express();
 const PORT = process.env.PORT || 5001;
+
+// Prometheus metrics setup
+const collectDefaultMetrics = client.collectDefaultMetrics;
+collectDefaultMetrics({ register: client.register });
 
 app.use(cors());
 app.use(express.json());
@@ -19,6 +24,12 @@ app.get("/health", (req, res) => {
     status: "OK",
     message: "Transaction service is running",
   });
+});
+
+// Metrics endpoint
+app.get("/metrics", async (req, res) => {
+  res.set("Content-Type", client.register.contentType);
+  res.end(await client.register.metrics());
 });
 
 // Auth and routes

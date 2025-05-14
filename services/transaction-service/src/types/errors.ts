@@ -47,3 +47,9 @@ export class InvalidScopeError extends ValidationError {
     this.code = "INVALID_SCOPE";
   }
 }
+
+export class TransactionError extends BaseError {
+  constructor(message: string, code: string = "TRANSACTION_ERROR") {
+    super(message, 400, code);
+  }
+}
