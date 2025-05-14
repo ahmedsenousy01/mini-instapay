@@ -1,0 +1,24 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: default-alertmanager-config
+  namespace: monitoring # Ensure this is the namespace where Alertmanager is running
+  labels:
+    alertmanagerConfig: main # A label Prometheus Operator can use to select this config
+spec:
+  route:
+    groupBy: ["job"]
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 12h
+    receiver: "null"
+  receivers:
+    - name: "null"
+      # No configuration needed for a null receiver
+      # Example for a Slack receiver (replace with actual values):
+      # slackConfigs:
+      # - apiURL:
+      #     key: slack_api_url
+      #     name: alertmanager-secrets
+      #   channel: '#alerts-channel'
+      #   sendResolved: true

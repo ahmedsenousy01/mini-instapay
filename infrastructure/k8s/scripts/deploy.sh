@@ -1,6 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+K8S_DIR="$(dirname "$SCRIPT_DIR")"
+
 # Function to build and load an image
 build_and_load_image() {
     local service=$1
@@ -8,13 +12,40 @@ build_and_load_image() {
 
     echo "🏗️  Building $service image..."
     if [ "$service" = "frontend" ]; then
-        docker build -t "$tag" ../../frontend
+        docker build -t "$tag" "${K8S_DIR}/../../frontend"
     else
-        docker build -t "$tag" ../../services/$service
+        docker build -t "$tag" "${K8S_DIR}/../../services/$service"
     fi
 
     # No need to load the image since we're using minikube's docker daemon
     echo "✅ Image $tag built successfully"
+}
+
+# Function to wait for Helm deployment
+wait_for_helm_deployment() {
+    local release=$1
+    local namespace=$2
+    local timeout=$3
+
+    echo "⏳ Waiting for Helm release $release to be ready..."
+    local start_time=$(date +%s)
+    local end_time=$((start_time + timeout))
+
+    while true; do
+        if helm status "$release" -n "$namespace" | grep -q 'STATUS: deployed'; then
+            echo "✅ Helm release $release is ready"
+            return 0
+        fi
+
+        current_time=$(date +%s)
+        if [ $current_time -gt $end_time ]; then
+            echo "⚠️  Timeout waiting for Helm release $release"
+            return 1
+        fi
+
+        echo "⏳ Waiting for Helm release $release..."
+        sleep 5
+    done
 }
 
 # Function to push database schema
@@ -30,7 +61,7 @@ push_database_schema() {
 
     # Apply the job
     echo "📊 Running schema push job..."
-    minikube kubectl -- apply -f db-service-job.yaml
+    minikube kubectl -- apply -f "${K8S_DIR}/base/db-service-job.yaml"
 
     # Wait for job completion
     echo "⏳ Waiting for schema push job to complete..."
@@ -93,6 +124,32 @@ wait_for_pods() {
 echo "🔄 Setting up minikube docker environment..."
 eval $(minikube docker-env)
 
+echo "📊 Setting up monitoring stack..."
+# Create monitoring namespace
+minikube kubectl -- create namespace monitoring --dry-run=client -o yaml | minikube kubectl -- apply -f -
+
+# Add Helm repositories
+echo "📦 Adding Helm repositories..."
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm repo update
+
+# Install Prometheus Stack (includes Grafana)
+echo "🚀 Installing Prometheus Stack..."
+helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+    --namespace monitoring \
+    --create-namespace \
+    --values "${K8S_DIR}/monitoring/values-override.yaml" \
+    --set prometheus.prometheusSpec.additionalScrapeConfigsSecret.enabled=true \
+    --set prometheus.prometheusSpec.additionalScrapeConfigsSecret.name=additional-scrape-configs \
+    --set prometheus.prometheusSpec.additionalScrapeConfigsSecret.key=prometheus-additional-scrape-configs.yaml
+
+# Wait for Prometheus Stack
+wait_for_helm_deployment "prometheus" "monitoring" 300
+
+# Apply AlertManager config
+echo "⚡ Applying AlertManager configuration..."
+minikube kubectl -- apply -f "${K8S_DIR}/monitoring/alertmanager-config.yaml"
+
 echo "🏗️  Building service images..."
 build_and_load_image "frontend"
 build_and_load_image "api-gateway"
@@ -101,13 +158,13 @@ build_and_load_image "notification-service"
 build_and_load_image "reporting-service"
 
 echo "🔐 Setting up Kubernetes secrets..."
-./setup-k8s-secrets.sh
+"${SCRIPT_DIR}/setup-k8s-secrets.sh"
 
 echo "📦 Applying Kubernetes configurations..."
 
 # Apply configurations in order
 echo "📊 Setting up database..."
-minikube kubectl -- apply -f postgres.yaml
+minikube kubectl -- apply -f "${K8S_DIR}/database/postgres.yaml"
 
 echo "⏳ Waiting for postgres to be ready (this may take a few minutes)..."
 wait_for_pods "postgres" 300
@@ -116,14 +173,14 @@ wait_for_pods "postgres" 300
 push_database_schema
 
 echo "🚀 Deploying backend services..."
-minikube kubectl -- apply -f api-gateway.yaml
-minikube kubectl -- apply -f transaction-service.yaml
-minikube kubectl -- apply -f notification-service.yaml
-minikube kubectl -- apply -f reporting-service.yaml
+minikube kubectl -- apply -f "${K8S_DIR}/services/api-gateway.yaml"
+minikube kubectl -- apply -f "${K8S_DIR}/services/transaction-service.yaml"
+minikube kubectl -- apply -f "${K8S_DIR}/services/notification-service.yaml"
+minikube kubectl -- apply -f "${K8S_DIR}/services/reporting-service.yaml"
 
 echo "🌐 Deploying frontend..."
-minikube kubectl -- apply -f frontend.yaml
-minikube kubectl -- apply -f ingress.yaml
+minikube kubectl -- apply -f "${K8S_DIR}/services/frontend.yaml"
+minikube kubectl -- apply -f "${K8S_DIR}/ingress/ingress.yaml"
 
 echo "⏳ Waiting for backend services to be ready..."
 wait_for_pods "api-gateway" 180
@@ -145,5 +202,34 @@ minikube kubectl -- get ingress
 
 echo "⚡ HPA Status:"
 minikube kubectl -- get hpa
+
+# Apply monitoring ingress
+echo "🌐 Applying monitoring ingress..."
+minikube kubectl -- apply -f "${K8S_DIR}/monitoring/monitoring-ingress.yaml"
+
+# Set up local host entries
+echo "📝 Adding local host entries..."
+echo "⚠️  The following entries need to be added to your /etc/hosts file:"
+echo "$(minikube ip) grafana.monitoring prometheus.monitoring"
+echo "Run: 'sudo echo \"$(minikube ip) grafana.monitoring prometheus.monitoring\" >> /etc/hosts'"
+
+# Get monitoring stack access
+GRAFANA_PASSWORD=$(minikube kubectl -- get secret -n monitoring prometheus-grafana -o jsonpath="{.data.admin-password}" | base64 --decode)
+echo "🔍 Monitoring Stack Access:"
+echo "Method 1 - Using Ingress (recommended):"
+echo "Grafana URL: http://grafana.monitoring/"
+echo "Prometheus URL: http://prometheus.monitoring/"
+echo ""
+echo "Method 2 - Using port-forward (if Ingress doesn't work):"
+echo "Run these commands in separate terminals:"
+echo "kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80"
+echo "kubectl port-forward -n monitoring svc/prometheus-kube-prometheus-prometheus 9090:9090"
+echo "Then access:"
+echo "Grafana: http://localhost:3000"
+echo "Prometheus: http://localhost:9090"
+echo ""
+echo "Grafana Credentials:"
+echo "Username: admin"
+echo "Password: $GRAFANA_PASSWORD"
 
 echo "✅ Deployment completed successfully!"

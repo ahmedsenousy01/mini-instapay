@@ -1,25 +1,32 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: transaction-service
+  name: notification-service
   labels:
-    app: transaction-service
+    app: notification-service
+    team: instapay
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: transaction-service
+      app: notification-service
   template:
     metadata:
       labels:
-        app: transaction-service
+        app: notification-service
+        team: instapay
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/path: "/metrics"
+        prometheus.io/port: "9180"
     spec:
       containers:
-        - name: transaction-service
-          image: mini-instapay/transaction-service:latest
+        - name: notification-service
+          image: mini-instapay/notification-service:latest
           imagePullPolicy: Never
           ports:
-            - containerPort: 5001
+            - containerPort: 5002
+            - containerPort: 9180
           env:
             - name: NODE_ENV
               value: "production"
@@ -38,10 +45,25 @@ spec:
                 secretKeyRef:
                   name: clerk-secrets
                   key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+            - name: SENDING_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: email-secrets
+                  key: sending-email
+            - name: GOOGLE_EMAIL
+              valueFrom:
+                secretKeyRef:
+                  name: email-secrets
+                  key: google-email
+            - name: GOOGLE_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: email-secrets
+                  key: google-app-password
           livenessProbe:
             httpGet:
               path: /health
-              port: 5001
+              port: 5002
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
@@ -49,7 +71,7 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 5001
+              port: 5002
             initialDelaySeconds: 20
             periodSeconds: 10
           resources:
@@ -63,11 +85,17 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: transaction-service
+  name: notification-service
 spec:
+  type: ClusterIP
   ports:
-    - port: 5001
-      targetPort: 5001
+    - port: 5002
+      targetPort: 5002
       protocol: TCP
+      name: http
+    - port: 9180
+      targetPort: 9180
+      protocol: TCP
+      name: metrics
   selector:
-    app: transaction-service
+    app: notification-service

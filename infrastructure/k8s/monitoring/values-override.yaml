@@ -1,0 +1,35 @@
+prometheus:
+  prometheusSpec:
+    additionalScrapeConfigs: |-
+      - job_name: 'kubernetes-pods-annotated'
+        honor_labels: true
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # Scrape only if annotation prometheus.io/scrape is true.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          # Set address from pod port annotation.
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          # Set scrape path from pod path annotation.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          # Add pod namespace as a label.
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          # Add pod name as a label.
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+          # Add service name from pod label (assuming 'app' label holds service name)
+          - source_labels: [__meta_kubernetes_pod_label_app]
+            action: replace
+            target_label: job # Override the job label with the app label

@@ -3,6 +3,7 @@ import express, { Request, Response, NextFunction } from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
 import { clerkMiddleware, requireAuth } from "@clerk/express";
 import cors from "cors";
+import client from "prom-client";
 /**
  * API Gateway for Mini-InstaPay
  *
@@ -18,6 +19,10 @@ import cors from "cors";
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+// Prometheus metrics setup
+const collectDefaultMetrics = client.collectDefaultMetrics;
+collectDefaultMetrics({ register: client.register });
+
 // Middleware
 app.use(
   cors({
@@ -27,12 +32,20 @@ app.use(
   })
 );
 app.use(express.json());
-app.use(clerkMiddleware());
 
 // Health check endpoint
 app.get("/api/health", (req: Request, res: Response) => {
   res.status(200).json({ status: "OK", message: "API Gateway is running" });
 });
+
+// Metrics endpoint
+app.get("/metrics", async (req: Request, res: Response) => {
+  res.set("Content-Type", client.register.contentType);
+  res.end(await client.register.metrics());
+});
+
+// Clerk middleware
+app.use(clerkMiddleware());
 
 // Transaction routes - protected by auth
 app.use(
