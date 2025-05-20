@@ -5,6 +5,16 @@ set -euo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 K8S_DIR="$(dirname "$SCRIPT_DIR")"
 
+# Check if minikube is running and start if needed
+echo "🔍 Checking minikube status..."
+if ! minikube status &>/dev/null; then
+    echo "🚀 Starting minikube cluster..."
+    minikube start
+    echo "✅ Minikube started successfully"
+else
+    echo "✅ Minikube is already running"
+fi
+
 # Function to build and load an image
 build_and_load_image() {
     local service=$1
@@ -81,26 +91,28 @@ push_database_schema() {
 wait_for_pods() {
     local app=$1
     local timeout=$2
+    local namespace=${3:-default}  # Use default namespace if not specified
+    local label=${4:-"app=$app"}   # Allow custom label selector, default to app=$app
     local start_time=$(date +%s)
     local end_time=$((start_time + timeout))
 
-    echo "⏳ Waiting for $app pods to be ready..."
+    echo "⏳ Waiting for $app pods to be ready in namespace $namespace..."
     while true; do
         current_time=$(date +%s)
         if [ $current_time -gt $end_time ]; then
             echo "⚠️  Timeout waiting for $app pods. Current status:"
-            minikube kubectl -- get pods -l app=$app
+            minikube kubectl -- get pods -n $namespace -l "$label"
             echo "📑 Pod logs:"
-            POD_NAME=$(minikube kubectl -- get pods -l app=$app -o jsonpath='{.items[0].metadata.name}')
+            POD_NAME=$(minikube kubectl -- get pods -n $namespace -l "$label" -o jsonpath='{.items[0].metadata.name}')
             if [ -n "$POD_NAME" ]; then
-                minikube kubectl -- logs $POD_NAME
+                minikube kubectl -- logs -n $namespace $POD_NAME
             fi
             return 1
         fi
 
         # Get pod status
         local pod_status
-        pod_status=$(minikube kubectl -- get pods -l app=$app -o json)
+        pod_status=$(minikube kubectl -- get pods -n $namespace -l "$label" -o json)
 
         # Count ready and total pods using jq
         local ready_pods=0
@@ -133,18 +145,29 @@ echo "📦 Adding Helm repositories..."
 helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
 helm repo update
 
+# Uninstall existing prometheus stack if it exists
+echo "🧹 Cleaning up existing monitoring stack..."
+helm uninstall prometheus -n monitoring --ignore-not-found
+
+# Clean up any existing RBAC resources that might conflict
+echo "🧹 Cleaning up existing RBAC resources..."
+minikube kubectl -- delete serviceaccount prometheus -n monitoring --ignore-not-found
+minikube kubectl -- delete clusterrole prometheus --ignore-not-found
+minikube kubectl -- delete clusterrolebinding prometheus --ignore-not-found
+
 # Install Prometheus Stack (includes Grafana)
 echo "🚀 Installing Prometheus Stack..."
-helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+helm install prometheus prometheus-community/kube-prometheus-stack \
     --namespace monitoring \
     --create-namespace \
-    --values "${K8S_DIR}/monitoring/values-override.yaml" \
-    --set prometheus.prometheusSpec.additionalScrapeConfigsSecret.enabled=true \
-    --set prometheus.prometheusSpec.additionalScrapeConfigsSecret.name=additional-scrape-configs \
-    --set prometheus.prometheusSpec.additionalScrapeConfigsSecret.key=prometheus-additional-scrape-configs.yaml
+    --values "${K8S_DIR}/monitoring/values-override.yaml"
 
 # Wait for Prometheus Stack
 wait_for_helm_deployment "prometheus" "monitoring" 300
+
+# Wait specifically for Grafana
+echo "⏳ Waiting for Grafana to be ready..."
+wait_for_pods "grafana" 300 "monitoring" "app.kubernetes.io/name=grafana"
 
 # Apply AlertManager config
 echo "⚡ Applying AlertManager configuration..."
@@ -207,12 +230,6 @@ minikube kubectl -- get hpa
 echo "🌐 Applying monitoring ingress..."
 minikube kubectl -- apply -f "${K8S_DIR}/monitoring/monitoring-ingress.yaml"
 
-# Set up local host entries
-echo "📝 Adding local host entries..."
-echo "⚠️  The following entries need to be added to your /etc/hosts file:"
-echo "$(minikube ip) grafana.monitoring prometheus.monitoring"
-echo "Run: 'sudo echo \"$(minikube ip) grafana.monitoring prometheus.monitoring\" >> /etc/hosts'"
-
 # Get monitoring stack access
 GRAFANA_PASSWORD=$(minikube kubectl -- get secret -n monitoring prometheus-grafana -o jsonpath="{.data.admin-password}" | base64 --decode)
 echo "🔍 Monitoring Stack Access:"
@@ -231,5 +248,16 @@ echo ""
 echo "Grafana Credentials:"
 echo "Username: admin"
 echo "Password: $GRAFANA_PASSWORD"
+
+# Set up local host entries
+echo "📝 Adding local host entries..."
+echo "⚠️  The following entries need to be added to your /etc/hosts file:"
+echo "$(minikube ip) grafana.monitoring prometheus.monitoring"
+echo "Run: 'echo \"$(minikube ip) grafana.monitoring prometheus.monitoring\" | sudo tee -a /etc/hosts'"
+
+# Start port-forwarding in the background
+echo "🔌 Starting Grafana port-forward in the background..."
+nohup minikube kubectl -- port-forward -n monitoring svc/prometheus-grafana 3000:80 >/dev/null 2>&1 &
+echo "✅ Port-forward started. Grafana will be available at http://localhost:3000"
 
 echo "✅ Deployment completed successfully!"

@@ -1,7 +1,13 @@
 prometheus:
   prometheusSpec:
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    podMonitorSelector: {}
     additionalScrapeConfigs: |-
-      - job_name: 'kubernetes-pods-annotated'
+      - job_name: 'kubernetes-pods'
         honor_labels: true
         kubernetes_sd_configs:
           - role: pod
@@ -29,7 +35,26 @@ prometheus:
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
-          # Add service name from pod label (assuming 'app' label holds service name)
-          - source_labels: [__meta_kubernetes_pod_label_app]
+          # Add container name as a label.
+          - source_labels: [__meta_kubernetes_pod_container_name]
             action: replace
-            target_label: job # Override the job label with the app label
+            target_label: container_name
+          # Add node name as a label.
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node_name
+          # Add pod labels as labels.
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+    rbac:
+      create: true
+      pspEnabled: false
+      namespaced: false
+
+grafana:
+  sidecar:
+    datasources:
+      defaultDatasourceEnabled: true
+  adminPassword: admin
+  service:
+    type: ClusterIP

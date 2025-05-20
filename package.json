@@ -12,9 +12,9 @@
     "start:prod": "docker-compose -f infrastructure/docker/docker-compose.prod.yml up -d --build",
     "stop:prod": "docker-compose -f infrastructure/docker/docker-compose.prod.yml down",
     "restart:prod": "docker-compose -f infrastructure/docker/docker-compose.prod.yml down && docker-compose -f infrastructure/docker/docker-compose.prod.yml up -d --build --force-recreate",
-    "k8s:deploy": "cd infrastructure/k8s && ./scripts/deploy.sh",
-    "k8s:secrets": "cd infrastructure/k8s && ./scripts/setup-k8s-secrets.sh",
-    "k8s:delete": "cd infrastructure/k8s && minikube kubectl -- delete -f services/ -f database/ -f ingress/ -f monitoring/ || true"
+    "k8s:deploy": "minikube start && cd infrastructure/k8s && ./scripts/deploy.sh",
+    "k8s:secrets": "minikube start && cd infrastructure/k8s && ./scripts/setup-k8s-secrets.sh",
+    "k8s:delete": "minikube start && cd infrastructure/k8s && minikube kubectl -- delete -f services/ -f database/ -f ingress/ -f monitoring/ || true"
   },
   "keywords": [],
   "author": "",
