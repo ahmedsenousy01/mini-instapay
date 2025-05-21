@@ -1,33 +1,44 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: reporting-service
+  name: api-gateway
   labels:
-    app: reporting-service
+    app: api-gateway
+    team: instapay
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: reporting-service
+      app: api-gateway
   template:
     metadata:
       labels:
-        app: reporting-service
+        app: api-gateway
+        team: instapay
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "4000"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
-        - name: reporting-service
-          image: mini-instapay/reporting-service:latest
+        - name: api-gateway
+          image: mini-instapay/api-gateway:latest
           imagePullPolicy: Never
           ports:
-            - containerPort: 5003
+            - containerPort: 4000
+              name: http
+              protocol: TCP
           env:
             - name: NODE_ENV
               value: "production"
-            - name: DATABASE_URL
-              valueFrom:
-                secretKeyRef:
-                  name: db-secrets
-                  key: database-url
+            - name: ENABLE_METRICS
+              value: "true"
+            - name: TRANSACTION_SERVICE_URL
+              value: "http://transaction-service:5001"
+            - name: NOTIFICATION_SERVICE_URL
+              value: "http://notification-service:5002"
+            - name: REPORTING_SERVICE_URL
+              value: "http://reporting-service:5003"
             - name: CLERK_SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -40,16 +51,16 @@ spec:
                   key: NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
           livenessProbe:
             httpGet:
-              path: /health
-              port: 5003
+              path: /api/health
+              port: http
             initialDelaySeconds: 30
             periodSeconds: 30
             timeoutSeconds: 10
             failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /health
-              port: 5003
+              path: /api/health
+              port: http
             initialDelaySeconds: 20
             periodSeconds: 10
           resources:
@@ -63,11 +74,13 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: reporting-service
+  name: api-gateway
 spec:
+  type: ClusterIP
   ports:
-    - port: 5003
-      targetPort: 5003
+    - port: 4000
+      targetPort: http
       protocol: TCP
+      name: http
   selector:
-    app: reporting-service
+    app: api-gateway

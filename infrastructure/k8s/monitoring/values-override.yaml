@@ -1,0 +1,60 @@
+prometheus:
+  prometheusSpec:
+    podMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorNamespaceSelector: {}
+    serviceMonitorSelector: {}
+    podMonitorNamespaceSelector: {}
+    podMonitorSelector: {}
+    additionalScrapeConfigs: |-
+      - job_name: 'kubernetes-pods'
+        honor_labels: true
+        kubernetes_sd_configs:
+          - role: pod
+        relabel_configs:
+          # Scrape only if annotation prometheus.io/scrape is true.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: true
+          # Set address from pod port annotation.
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+          # Set scrape path from pod path annotation.
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          # Add pod namespace as a label.
+          - source_labels: [__meta_kubernetes_namespace]
+            action: replace
+            target_label: kubernetes_namespace
+          # Add pod name as a label.
+          - source_labels: [__meta_kubernetes_pod_name]
+            action: replace
+            target_label: kubernetes_pod_name
+          # Add container name as a label.
+          - source_labels: [__meta_kubernetes_pod_container_name]
+            action: replace
+            target_label: container_name
+          # Add node name as a label.
+          - source_labels: [__meta_kubernetes_pod_node_name]
+            action: replace
+            target_label: node_name
+          # Add pod labels as labels.
+          - action: labelmap
+            regex: __meta_kubernetes_pod_label_(.+)
+    rbac:
+      create: true
+      pspEnabled: false
+      namespaced: false
+
+grafana:
+  sidecar:
+    datasources:
+      defaultDatasourceEnabled: true
+  adminPassword: admin
+  service:
+    type: ClusterIP

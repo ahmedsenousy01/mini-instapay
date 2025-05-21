@@ -2,6 +2,11 @@ import "dotenv/config";
 import express from "express";
 import { EmailService } from "./services/email.service.js";
 import { NotificationService } from "./services/notification.service.js";
+import client from "prom-client";
+
+// Prometheus metrics setup
+const collectDefaultMetrics = client.collectDefaultMetrics;
+collectDefaultMetrics({ register: client.register });
 
 async function startServer() {
   try {
@@ -26,6 +31,12 @@ async function startServer() {
         message: "Notification service is running",
         emailService: emailConnected,
       });
+    });
+
+    // Metrics endpoint
+    app.get("/metrics", async (req, res) => {
+      res.set("Content-Type", client.register.contentType);
+      res.end(await client.register.metrics());
     });
 
     // Start the server
