@@ -10,6 +10,7 @@ import { db } from "../db/index.js";
 import { accounts, notifications } from "../db/schema.js";
 import { ValidationError, NotFoundError } from "../types/errors.js";
 import { z } from "zod";
+import { logger } from "../utils/logger.js";
 
 const router = Router();
 
@@ -26,9 +27,13 @@ router.get(
     try {
       const { userId } = getAuth(req);
       if (!userId) {
+        logger.error("Unauthorized access attempt", undefined, {
+          path: req.path,
+        });
         throw new ValidationError("Unauthorized");
       }
 
+      logger.info("Fetching user accounts", { userId });
       const userAccounts = await db
         .select({
           id: accounts.id,
@@ -39,58 +44,37 @@ router.get(
         .from(accounts)
         .where(eq(accounts.userId, userId));
 
+      logger.info("User accounts retrieved", {
+        userId,
+        count: userAccounts.length,
+      });
       res.json(userAccounts);
     } catch (error) {
-      next(error);
-    }
-  }
-);
-
-// Get single account details
-router.get(
-  "/:accountId",
-  requireAuth(),
-  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const { userId } = getAuth(req);
-      if (!userId) {
-        throw new ValidationError("Unauthorized");
-      }
-
-      const { accountId } = req.params;
-      const account = await db
-        .select()
-        .from(accounts)
-        .where(eq(accounts.id, accountId))
-        .limit(1);
-
-      if (!account.length) {
-        throw new NotFoundError("Account not found");
-      }
-
-      if (account[0].userId !== userId) {
-        throw new ValidationError("Access denied to this account");
-      }
-
-      res.json(account[0]);
-    } catch (error) {
+      logger.error("Error fetching user accounts", error as Error);
       next(error);
     }
   }
 );
 
 // Create new account
-router.post(
-  "/",
+router.get(
+  "/create",
   requireAuth(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
+        logger.error("Unauthorized access attempt", undefined, {
+          path: req.path,
+        });
         throw new ValidationError("Unauthorized");
       }
 
-      const { currency } = createAccountSchema.parse(req.body);
+      const { currency } = createAccountSchema.parse({
+        currency: req.query.currency as string,
+      });
+
+      logger.info("Creating new account", { userId, currency });
 
       const newAccount = await db.transaction(async (tx) => {
         const accountResult = await tx
@@ -112,8 +96,60 @@ router.post(
         return accountResult;
       });
 
+      logger.info("Account created successfully", {
+        userId,
+        accountId: newAccount[0].id,
+        currency,
+      });
+
       res.status(201).json(newAccount[0]);
     } catch (error) {
+      logger.error("Error creating account", error as Error);
+      next(error);
+    }
+  }
+);
+
+// Get single account details
+router.get(
+  "/:accountId/details",
+  requireAuth(),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { userId } = getAuth(req);
+      if (!userId) {
+        logger.error("Unauthorized access attempt", undefined, {
+          path: req.path,
+        });
+        throw new ValidationError("Unauthorized");
+      }
+
+      const { accountId } = req.params;
+      logger.info("Fetching account details", { userId, accountId });
+
+      const account = await db
+        .select()
+        .from(accounts)
+        .where(eq(accounts.id, accountId))
+        .limit(1);
+
+      if (!account.length) {
+        logger.error("Account not found", undefined, { accountId });
+        throw new NotFoundError("Account not found");
+      }
+
+      if (account[0].userId !== userId) {
+        logger.error("Unauthorized account access", undefined, {
+          userId,
+          accountId,
+        });
+        throw new ValidationError("Access denied to this account");
+      }
+
+      logger.info("Account details retrieved", { accountId });
+      res.json(account[0]);
+    } catch (error) {
+      logger.error("Error fetching account details", error as Error);
       next(error);
     }
   }

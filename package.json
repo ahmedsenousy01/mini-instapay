@@ -14,7 +14,12 @@
     "restart:prod": "docker-compose -f infrastructure/docker/docker-compose.prod.yml down && docker-compose -f infrastructure/docker/docker-compose.prod.yml up -d --build --force-recreate",
     "k8s:deploy": "cd infrastructure/k8s && ./scripts/deploy.sh",
     "k8s:secrets": "cd infrastructure/k8s && ./scripts/setup-k8s-secrets.sh",
-    "k8s:delete": "cd infrastructure/k8s && minikube kubectl -- delete -f services/ -f database/ -f ingress/ -f monitoring/ || true"
+    "k8s:delete": "cd infrastructure/k8s && minikube kubectl -- delete -f services/ -f database/ -f ingress/ -f monitoring/ || true",
+    "logs": "minikube kubectl -- logs -f -l app.kubernetes.io/part-of=mini-instapay --all-containers=true --max-log-requests=20",
+    "logs:api": "minikube kubectl -- logs -f -l app.kubernetes.io/name=api-gateway --all-containers=true",
+    "logs:transactions": "minikube kubectl -- logs -f -l app.kubernetes.io/name=transaction-service --all-containers=true",
+    "logs:notifications": "minikube kubectl -- logs -f -l app.kubernetes.io/name=notification-service --all-containers=true",
+    "logs:reports": "minikube kubectl -- logs -f -l app.kubernetes.io/name=reporting-service --all-containers=true"
   },
   "keywords": [],
   "author": "",

@@ -20,6 +20,7 @@ import {
   UnauthorizedError,
 } from "../types/errors.js";
 import { z } from "zod";
+import { logger } from "../utils/logger.js";
 
 const router = Router();
 
@@ -52,20 +53,40 @@ const normalizeCurrency = (currency: string): string => {
 };
 
 // Initiate a transfer
-router.post(
-  "/",
+router.get(
+  "/create",
   requireAuth(),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
+        logger.error("Unauthorized transfer attempt", undefined, {
+          path: req.path,
+        });
         throw new UnauthorizedError("Unauthorized");
       }
 
       const { fromAccountId, toAccountId, amount, currency } =
-        transferSchema.parse(req.body);
+        transferSchema.parse({
+          fromAccountId: req.query.fromAccountId as string,
+          toAccountId: req.query.toAccountId as string,
+          amount: Number(req.query.amount),
+          currency: req.query.currency as string,
+        });
+
+      logger.info("Initiating transfer", {
+        userId,
+        fromAccountId,
+        toAccountId,
+        amount,
+        currency,
+      });
 
       if (fromAccountId === toAccountId) {
+        logger.error("Invalid transfer - same account", undefined, {
+          fromAccountId,
+          toAccountId,
+        });
         throw new ValidationError("Cannot transfer to the same account");
       }
 
@@ -79,21 +100,38 @@ router.post(
             .from(accounts)
             .where(eq(accounts.id, fromAccountId))
             .limit(1)
-            .for("update"); // Lock the row for update
+            .for("update");
 
           if (!fromAccount) {
+            logger.error("Source account not found", undefined, {
+              fromAccountId,
+            });
             throw new NotFoundError("Source account not found");
           }
 
           if (fromAccount.userId !== userId) {
+            logger.error("Unauthorized source account access", undefined, {
+              userId,
+              fromAccountId,
+            });
             throw new ValidationError("Access denied to source account");
           }
 
           if (fromAccount.balance < amount) {
+            logger.error("Insufficient balance", undefined, {
+              fromAccountId,
+              balance: fromAccount.balance,
+              amount,
+            });
             throw new ValidationError("Insufficient balance");
           }
 
           if (fromAccount.currency !== normalizedCurrency) {
+            logger.error("Currency mismatch with source account", undefined, {
+              fromAccountId,
+              expectedCurrency: fromAccount.currency,
+              providedCurrency: normalizedCurrency,
+            });
             throw new ValidationError("Currency mismatch with source account");
           }
 
@@ -103,17 +141,36 @@ router.post(
             .from(accounts)
             .where(eq(accounts.id, toAccountId))
             .limit(1)
-            .for("update"); // Lock the row for update
+            .for("update");
 
           if (!toAccount) {
+            logger.error("Destination account not found", undefined, {
+              toAccountId,
+            });
             throw new NotFoundError("Destination account not found");
           }
 
           if (toAccount.currency !== normalizedCurrency) {
+            logger.error(
+              "Currency mismatch with destination account",
+              undefined,
+              {
+                toAccountId,
+                expectedCurrency: toAccount.currency,
+                providedCurrency: normalizedCurrency,
+              }
+            );
             throw new ValidationError(
               "Currency mismatch with destination account"
             );
           }
+
+          logger.info("Creating transaction record", {
+            fromAccountId,
+            toAccountId,
+            amount,
+            currency: normalizedCurrency,
+          });
 
           // Create transaction
           const [newTransaction] = await tx
@@ -123,11 +180,18 @@ router.post(
               toAccountId,
               amount,
               currency: normalizedCurrency,
-              status: "COMPLETED" as TransactionStatus, // Directly mark as completed since we're in a transaction
+              status: "COMPLETED" as TransactionStatus,
               type: "TRANSFER" as TransactionType,
               completedAt: new Date(),
             })
             .returning();
+
+          logger.info("Updating account balances", {
+            fromAccountId,
+            newFromBalance: fromAccount.balance - amount,
+            toAccountId,
+            newToBalance: toAccount.balance + amount,
+          });
 
           // Update account balances
           await tx
@@ -140,6 +204,7 @@ router.post(
             .set({ balance: toAccount.balance + amount })
             .where(eq(accounts.id, toAccountId));
 
+          logger.info("Creating notifications");
           // Create notifications
           await tx.insert(notifications).values([
             {
@@ -157,12 +222,21 @@ router.post(
           return newTransaction;
         },
         {
-          isolationLevel: "serializable", // Highest isolation level to prevent race conditions
+          isolationLevel: "serializable",
         }
       );
 
+      logger.info("Transfer completed successfully", {
+        transactionId: result.id,
+        fromAccountId,
+        toAccountId,
+        amount,
+        currency: normalizedCurrency,
+      });
+
       res.status(201).json(result);
     } catch (error) {
+      logger.error("Transfer failed", error as Error);
       next(error);
     }
   }
@@ -176,11 +250,15 @@ router.get(
     try {
       const { userId } = getAuth(req);
       if (!userId) {
+        logger.error("Unauthorized access attempt", undefined, {
+          path: req.path,
+        });
         throw new UnauthorizedError("Unauthorized");
       }
 
       const query = listTransactionsSchema.parse(req.query);
 
+      logger.info("Fetching user accounts", { userId });
       // Get user's accounts
       const userAccounts = await db
         .select({ id: accounts.id })
@@ -190,6 +268,7 @@ router.get(
       const accountIds = userAccounts.map((acc) => acc.id);
 
       if (accountIds.length === 0) {
+        logger.info("No accounts found for user", { userId });
         res.json([]);
         return;
       }
@@ -226,6 +305,10 @@ router.get(
         end.setHours(23, 59, 59, 999);
 
         if (start > end) {
+          logger.error("Invalid date range", undefined, {
+            fromDate: query.fromDate,
+            toDate: query.toDate,
+          });
           throw new ValidationError("Start date must be before end date");
         }
 
@@ -236,6 +319,14 @@ router.get(
       const limit = parseInt(query.limit);
       const offset = (page - 1) * limit;
 
+      logger.info("Fetching transactions", {
+        userId,
+        query,
+        page,
+        limit,
+        offset,
+      });
+
       const results = await db
         .select()
         .from(transactions)
@@ -244,8 +335,14 @@ router.get(
         .limit(limit)
         .offset(offset);
 
+      logger.info("Transactions retrieved", {
+        userId,
+        count: results.length,
+      });
+
       res.json(results);
     } catch (error) {
+      logger.error("Error fetching transactions", error as Error);
       next(error);
     }
   }
@@ -259,11 +356,15 @@ router.get(
     try {
       const { userId } = getAuth(req);
       if (!userId) {
+        logger.error("Unauthorized access attempt", undefined, {
+          path: req.path,
+        });
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
 
       const { transactionId } = req.params;
+      logger.info("Fetching transaction details", { userId, transactionId });
 
       // Get user's accounts
       const userAccounts = await db
@@ -274,6 +375,7 @@ router.get(
       const accountIds = userAccounts.map((acc) => acc.id);
 
       if (accountIds.length === 0) {
+        logger.info("No accounts found for user", { userId });
         res.status(404).json({ error: "Transaction not found" });
         return;
       }
@@ -293,31 +395,40 @@ router.get(
         .limit(1);
 
       if (!transaction.length) {
+        logger.error("Transaction not found", undefined, { transactionId });
         res.status(404).json({ error: "Transaction not found" });
         return;
       }
 
+      logger.info("Transaction details retrieved", { transactionId });
       res.json(transaction[0]);
     } catch (error) {
-      console.error("Error fetching transaction:", error);
+      logger.error("Error fetching transaction details", error as Error);
       res.status(500).json({ error: "Internal server error" });
     }
   }
 );
 
 // Cancel transaction
-router.patch(
+router.get(
   "/:transactionId/cancel",
   requireAuth(),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { userId } = getAuth(req);
       if (!userId) {
+        logger.error("Unauthorized access attempt", undefined, {
+          path: req.path,
+        });
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
 
       const { transactionId } = req.params;
+      logger.info("Attempting to cancel transaction", {
+        userId,
+        transactionId,
+      });
 
       // Get the transaction
       const transaction = await db
@@ -327,12 +438,17 @@ router.patch(
         .limit(1);
 
       if (!transaction.length) {
+        logger.error("Transaction not found", undefined, { transactionId });
         res.status(404).json({ error: "Transaction not found" });
         return;
       }
 
       // Check if transaction is PENDING
       if (transaction[0].status !== "PENDING") {
+        logger.error("Cannot cancel non-pending transaction", undefined, {
+          transactionId,
+          currentStatus: transaction[0].status,
+        });
         res
           .status(400)
           .json({ error: "Only pending transactions can be cancelled" });
@@ -347,6 +463,15 @@ router.patch(
         .limit(1);
 
       if (!fromAccount.length || fromAccount[0].userId !== userId) {
+        logger.error(
+          "Unauthorized transaction cancellation attempt",
+          undefined,
+          {
+            userId,
+            transactionId,
+            fromAccountId: transaction[0].fromAccountId,
+          }
+        );
         res
           .status(403)
           .json({ error: "Unauthorized to cancel this transaction" });
@@ -361,9 +486,15 @@ router.patch(
         .limit(1);
 
       if (!toAccount.length) {
+        logger.error("Destination account not found", undefined, {
+          transactionId,
+          toAccountId: transaction[0].toAccountId,
+        });
         res.status(500).json({ error: "Destination account not found" });
         return;
       }
+
+      logger.info("Processing transaction cancellation", { transactionId });
 
       await db.transaction(
         async (tx) => {
@@ -381,10 +512,23 @@ router.patch(
 
           // Revert balances (double-check sufficient funds on dest account)
           if (toAccount[0].balance < transaction[0].amount) {
+            logger.error("Insufficient balance for cancellation", undefined, {
+              transactionId,
+              toAccountId: toAccount[0].id,
+              balance: toAccount[0].balance,
+              amount: transaction[0].amount,
+            });
             throw new Error(
               "Destination balance insufficient to revert transfer"
             );
           }
+
+          logger.info("Reverting account balances", {
+            fromAccountId: fromAccount[0].id,
+            toAccountId: toAccount[0].id,
+            amount: transaction[0].amount,
+          });
+
           await tx
             .update(accounts)
             .set({ balance: fromAccount[0].balance + transaction[0].amount })
@@ -404,6 +548,7 @@ router.patch(
             })
             .where(eq(transactions.id, transactionId));
 
+          logger.info("Creating cancellation notifications");
           // Notifications
           await tx.insert(notifications).values([
             {
@@ -421,9 +566,10 @@ router.patch(
         { isolationLevel: "serializable" }
       );
 
+      logger.info("Transaction cancelled successfully", { transactionId });
       res.json({ message: "Transaction cancelled successfully" });
     } catch (error) {
-      console.error("Error cancelling transaction:", error);
+      logger.error("Error cancelling transaction", error as Error);
       res.status(500).json({ error: "Internal server error" });
     }
   }
@@ -437,11 +583,15 @@ router.get(
     try {
       const { userId } = getAuth(req);
       if (!userId) {
+        logger.error("Unauthorized access attempt", undefined, {
+          path: req.path,
+        });
         res.status(401).json({ error: "Unauthorized" });
         return;
       }
 
       const { accountId } = req.params;
+      logger.info("Fetching account transactions", { userId, accountId });
 
       // Verify account ownership
       const account = await db
@@ -451,6 +601,10 @@ router.get(
         .limit(1);
 
       if (!account.length || account[0].userId !== userId) {
+        logger.error("Unauthorized account access", undefined, {
+          userId,
+          accountId,
+        });
         res.status(403).json({ error: "Unauthorized" });
         return;
       }
@@ -467,9 +621,14 @@ router.get(
         )
         .orderBy(desc(transactions.initiatedAt));
 
+      logger.info("Account transactions retrieved", {
+        accountId,
+        count: accountTransactions.length,
+      });
+
       res.json(accountTransactions);
     } catch (error) {
-      console.error("Error fetching account transactions:", error);
+      logger.error("Error fetching account transactions", error as Error);
       res.status(500).json({ error: "Internal server error" });
     }
   }

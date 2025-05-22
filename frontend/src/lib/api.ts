@@ -59,6 +59,16 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
   return response.json();
 };
 
+// Helper function to convert object to query string
+const toQueryString = (params: Record<string, any>): string => {
+  return Object.entries(params)
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`
+    )
+    .join("&");
+};
+
 // Accounts API
 export const accountsApi = {
   list: async (): Promise<Account[]> => {
@@ -71,12 +81,9 @@ export const accountsApi = {
   },
 
   create: async (data: CreateAccountRequest): Promise<Account> => {
-    const options = await getRequestOptions({
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+    const options = await getRequestOptions();
     const response = await fetch(
-      `${API_BASE_URL}/transactions/v1/accounts`,
+      `${API_BASE_URL}/transactions/v1/accounts/create?${toQueryString(data)}`,
       options
     );
     return handleResponse(response);
@@ -85,7 +92,7 @@ export const accountsApi = {
   getById: async (id: string): Promise<Account> => {
     const options = await getRequestOptions();
     const response = await fetch(
-      `${API_BASE_URL}/transactions/v1/accounts/${id}`,
+      `${API_BASE_URL}/transactions/v1/accounts/${id}/details`,
       options
     );
     return handleResponse(response);
@@ -104,12 +111,9 @@ export const transactionsApi = {
   },
 
   transfer: async (data: TransferRequest): Promise<Transaction> => {
-    const options = await getRequestOptions({
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+    const options = await getRequestOptions();
     const response = await fetch(
-      `${API_BASE_URL}/transactions/v1/transfers`,
+      `${API_BASE_URL}/transactions/v1/transfers/create?${toQueryString(data)}`,
       options
     );
     return handleResponse(response);
@@ -123,29 +127,32 @@ export const transactionsApi = {
     );
     return handleResponse(response);
   },
+
+  cancel: async (id: string): Promise<void> => {
+    const options = await getRequestOptions();
+    const response = await fetch(
+      `${API_BASE_URL}/transactions/v1/transfers/${id}/cancel`,
+      options
+    );
+    return handleResponse(response);
+  },
 };
 
 // Funding API
 export const fundingApi = {
   deposit: async (data: FundingRequest): Promise<Transaction> => {
-    const options = await getRequestOptions({
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+    const options = await getRequestOptions();
     const response = await fetch(
-      `${API_BASE_URL}/transactions/v1/funding/deposit`,
+      `${API_BASE_URL}/transactions/v1/funding/deposit?${toQueryString(data)}`,
       options
     );
     return handleResponse(response);
   },
 
   withdraw: async (data: FundingRequest): Promise<Transaction> => {
-    const options = await getRequestOptions({
-      method: "POST",
-      body: JSON.stringify(data),
-    });
+    const options = await getRequestOptions();
     const response = await fetch(
-      `${API_BASE_URL}/transactions/v1/funding/withdraw`,
+      `${API_BASE_URL}/transactions/v1/funding/withdraw?${toQueryString(data)}`,
       options
     );
     return handleResponse(response);
