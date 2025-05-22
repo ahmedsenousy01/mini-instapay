@@ -1,5 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { accountsApi, transactionsApi, fundingApi } from "@/lib/api";
+import {
+  accountsApi,
+  transactionsApi,
+  fundingApi,
+  reportsApi,
+} from "@/lib/api";
 import type { CreateAccountRequest } from "@/types/account";
 import type { TransferRequest, FundingRequest } from "@/types/transaction";
 
@@ -78,5 +83,38 @@ export function useWithdraw() {
       queryClient.invalidateQueries({ queryKey: ["transactions"] });
       queryClient.invalidateQueries({ queryKey: ["accounts"] });
     },
+  });
+}
+
+// Reports Hooks
+export function useAccountReport(
+  accountId: string,
+  params: {
+    startDate: string;
+    endDate: string;
+    groupBy?: string;
+    currency?: string;
+  }
+) {
+  return useQuery({
+    queryKey: ["reports", "account", accountId, params],
+    queryFn: () => reportsApi.getAccountReport(accountId, params),
+    enabled: !!accountId && !!params.startDate && !!params.endDate,
+  });
+}
+
+export function useUserReport(
+  userId: string,
+  params: {
+    startDate: string;
+    endDate: string;
+    groupBy?: string;
+    currency?: string;
+  }
+) {
+  return useQuery({
+    queryKey: ["reports", "user", userId, params],
+    queryFn: () => reportsApi.getUserReport(userId, params),
+    enabled: !!userId && !!params.startDate && !!params.endDate,
   });
 }

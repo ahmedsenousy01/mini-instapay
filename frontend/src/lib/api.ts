@@ -159,4 +159,41 @@ export const fundingApi = {
   },
 };
 
+// Reports API
+export const reportsApi = {
+  getAccountReport: async (
+    accountId: string,
+    params: {
+      startDate: string;
+      endDate: string;
+      groupBy?: string;
+      currency?: string;
+    }
+  ) => {
+    const options = await getRequestOptions();
+    const response = await fetch(
+      `${API_BASE_URL}/reports/accounts/${accountId}?${toQueryString(params)}`,
+      options
+    );
+    return handleResponse(response);
+  },
+
+  getUserReport: async (
+    userId: string,
+    params: {
+      startDate: string;
+      endDate: string;
+      groupBy?: string;
+      currency?: string;
+    }
+  ) => {
+    const options = await getRequestOptions();
+    const response = await fetch(
+      `${API_BASE_URL}/reports/users/${userId}?${toQueryString(params)}`,
+      options
+    );
+    return handleResponse(response);
+  },
+};
+
 export { AuthError };

@@ -3,6 +3,9 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { TransactionList } from "@/components/TransactionList";
+import { TransferForm } from "@/components/TransferForm";
+import { FundingForm } from "@/components/FundingForm";
+import { ReportForm } from "@/components/ReportForm";
 import { useAccount, useTransactions } from "@/hooks/api";
 import { useEffect, useState } from "react";
 
@@ -77,9 +80,34 @@ export default function AccountPage({ params }: AccountPageProps) {
         </div>
       </div>
 
-      <div className="mt-8">
-        <h2 className="text-2xl font-bold mb-4">Transactions</h2>
-        <TransactionList transactions={accountTransactions} />
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div className="space-y-8">
+          <div>
+            <h2 className="text-2xl font-bold mb-4">Transfer Money</h2>
+            <div className="bg-white rounded-lg shadow p-6">
+              <TransferForm fromAccount={account} />
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-2xl font-bold mb-4">Deposit / Withdraw</h2>
+            <div className="bg-white rounded-lg shadow p-6">
+              <FundingForm account={account} />
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-2xl font-bold mb-4">Reports</h2>
+            <div className="bg-white rounded-lg shadow p-6">
+              <ReportForm account={account} userId={account.userId} />
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <h2 className="text-2xl font-bold mb-4">Transactions</h2>
+          <TransactionList transactions={accountTransactions} />
+        </div>
       </div>
     </main>
   );
